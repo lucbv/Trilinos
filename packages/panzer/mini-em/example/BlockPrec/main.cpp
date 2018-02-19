@@ -359,7 +359,8 @@ int main(int argc,char * argv[])
       req_handler->addRequestCallback(callback);
 
       // add discrete gradient
-      addDiscreteGradientToRequestHandler(auxLinObjFactory,req_handler);
+      if (use_refmaxwell)
+        addDiscreteGradientToRequestHandler(auxLinObjFactory,req_handler);
 
       std::string defaultXMLfile;
       if (!use_refmaxwell)
