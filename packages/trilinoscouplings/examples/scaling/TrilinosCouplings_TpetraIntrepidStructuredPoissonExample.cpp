@@ -156,7 +156,7 @@ makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
                             Teuchos::RCP<multivector_type>& B,
                             Teuchos::RCP<multivector_type>& X_exact,
                             Teuchos::RCP<multivector_type>& X,
-                            Teuchos::Array<Teuchos::Array<ST> >& coordArray,
+                            Teuchos::Array<Teuchos::ArrayView<const double> >& coordArray,
                             Teuchos::Array<LO>& lNodesPerDim,
                             const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
                             const Teuchos::RCP<Node>& node,
@@ -183,7 +183,7 @@ makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
                             Teuchos::RCP<vector_type>& B,
                             Teuchos::RCP<vector_type>& X_exact,
                             Teuchos::RCP<vector_type>& X,
-                            Teuchos::Array<Teuchos::Array<ST> >& coordArray,
+                            Teuchos::Array<Teuchos::ArrayView<const double> >& coordArray,
                             Teuchos::Array<LO>& lNodesPerDim,
                             const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
                             const Teuchos::RCP<Node>& node,
@@ -551,9 +551,9 @@ makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
   Array<int> ownedGIDs;
   RCP<const map_type> globalMapG;
-  Teuchos::Array<ST> coordXArray;
-  Teuchos::Array<ST> coordYArray;
-  Teuchos::Array<ST> coordZArray;
+  Teuchos::Array<double> coordXArray;
+  Teuchos::Array<double> coordYArray;
+  Teuchos::Array<double> coordZArray;
   {
     TEUCHOS_FUNC_TIME_MONITOR_DIFF("Build global maps", build_maps);
 
@@ -626,9 +626,9 @@ makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
         ++oidx;
       }
     }
-    coordArray[0] = coordXArray;
-    coordArray[1] = coordYArray;
-    coordArray[2] = coordZArray;
+    coordArray[0] = coordXArray();
+    coordArray[1] = coordYArray();
+    coordArray[2] = coordZArray();
     globalMapG = rcp (new map_type (-1, ownedGIDs (), 0, comm, node));
   }
 

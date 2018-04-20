@@ -261,7 +261,7 @@ main (int argc, char *argv[])
 
       RCP<sparse_matrix_type> A;
       RCP<vector_type> B, X_exact, X;
-      Teuchos::Array<Teuchos::Array<ST> > coordsArray(3);
+      Teuchos::Array<Teuchos::ArrayView<const double> > coordsArray(3);
       Teuchos::Array<LO> lNodesPerDim(3);
       {
         TEUCHOS_FUNC_TIME_MONITOR_DIFF("Total Assembly", total_assembly);
@@ -304,10 +304,15 @@ main (int argc, char *argv[])
 #ifdef HAVE_TRILINOSCOUPLINGS_MUELU
 	  for(int i=0; i<numMueluRebuilds+1; i++) {
 	    if (inputList.isSublist("MueLu")) {
+              // create the coordinates multivector
+              RCP<Tpetra::MultiVector<double,LO,GO,Node> > Coords =
+                rcp(new Tpetra::MultiVector<double,LO,GO,Node>(A->getRowMap(), coordsArray(), 3));
 	      ParameterList mueluParams = inputList.sublist("MueLu");
               const std::string userName = "user data";
               Teuchos::ParameterList& userParamList = mueluParams.sublist(userName);
               Teuchos::Array<GO> gNodesPerDim(3, -1);
+              userParamList.set<Teuchos::RCP<Tpetra::MultiVector<double,LO,GO,Node> > >("Coordinates",
+                                                                                      Coords);
               userParamList.set<Teuchos::Array<GO> >("Array<GO> gNodesPerDim", gNodesPerDim);
               userParamList.set<Teuchos::Array<LO> >("Array<LO> lNodesPerDim", lNodesPerDim);
 	      M = MueLu::CreateTpetraPreconditioner<ST,LO,GO,Node>(A,mueluParams,mueluParams);
