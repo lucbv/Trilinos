@@ -847,6 +847,8 @@ namespace MueLuTests {
     RCP<Xpetra::Matrix<SC,LO,GO,Node> > P = lvl1->Get<RCP<Matrix> >("P", MueLu::NoFactory::get());
     RCP<CrsMatrix> PCrs = rcp_dynamic_cast<CrsMatrixWrap>(P)->getCrsMatrix();
 
+    Xpetra::IO<SC,LO,GO,NO>::Write("BlackBoxProlongator.m", *P);
+
   } // BBPoisson
 
 
