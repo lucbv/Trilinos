@@ -51,10 +51,14 @@
 #include "MueLu_Version.hpp"
 
 #include <Xpetra_MultiVectorFactory.hpp>
+#include <Xpetra_CrsGraphFactory.hpp>
+#include <Xpetra_CrsGraph.hpp>
 #include <Xpetra_VectorFactory.hpp>
 #include <Xpetra_Vector.hpp>
 #include <Xpetra_MatrixMatrix.hpp>
 #include <Xpetra_IO.hpp>
+
+#include "Galeri_XpetraProblemFactory.hpp"
 
 #include "MueLu_BlackBoxPFactory.hpp"
 #include "MueLu_TrilinosSmoother.hpp"
@@ -852,12 +856,81 @@ namespace MueLuTests {
   } // BBPoisson
 
 
+  TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL(BlackBoxPFactory, BBfromGraph, Scalar, LocalOrdinal,
+                                    GlobalOrdinal, Node)
+  {
+#   include "MueLu_UseShortNames.hpp"
+    MUELU_TESTING_SET_OSTREAM;
+    MUELU_TESTING_LIMIT_SCOPE(Scalar,GlobalOrdinal,Node);
+
+    out << "version: " << MueLu::Version() << std::endl;
+
+    RCP<const Teuchos::Comm<int> > comm = Teuchos::DefaultComm<int>::getComm();
+    const int numProcs = comm->getRank();
+
+    if(numProcs == 1) {
+      // used Xpetra lib (for maps and smoothers)
+      Xpetra::UnderlyingLib lib = MueLuTests::TestHelpers::Parameters::getLib();
+
+      Teuchos::ParameterList matrixList;
+      const int numDimensions = 3;
+      Array<LO> fineNodesPerDir(3);
+      fineNodesPerDir[0] = 5;
+      fineNodesPerDir[1] = 3;
+      fineNodesPerDir[2] = 3;
+      const int numRows = fineNodesPerDir[2]*fineNodesPerDir[1]*fineNodesPerDir[0];
+      matrixList.set("nx", fineNodesPerDir[0]);
+      matrixList.set("ny", fineNodesPerDir[1]);
+      matrixList.set("nz", fineNodesPerDir[2]);
+      matrixList.set("matrixType","Laplace3D");
+
+      Array<LO> coarseningRate(3, 2);
+
+      RCP<Map> rowMap = MapFactory::Build(lib, numRows, numRows, 0, comm);
+
+      RCP<Galeri::Xpetra::Problem<Map,CrsMatrixWrap,MultiVector> > Pr = Galeri::Xpetra::
+        BuildProblem<SC,LO,GO,Map,CrsMatrixWrap,MultiVector>("Laplace3D", rowMap, matrixList);
+      RCP<Matrix> A = Pr->BuildMatrix();
+
+      // Since everything is local we can use the constructor with rowMap only
+      // Also in the case of Black Box, the number of nnz per row can be taken
+      // constant and equal to the number of nnz per row corresponding to a fine
+      // points on the mesh. This is an overestimate of nnz since coarse points
+      // are injected and only require 1 nnz per row...
+      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(rowMap, 8);
+      Array<LO> colIdx(8), coarseIdx(3);
+      Array<LO> coarseNodesPerDir(3);
+      for (int dim = 0; dim < numDimensions; ++dim) {
+        int rem;
+        coarseNodesPerDir[dim] = fineNodesPerDir[dim] / coarseningRate[dim];
+        rem                    = fineNodesPerDir[dim] % coarseningRate[dim];
+      }
+
+      for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+        // Compute the coarse indices of the current point
+        int rem;
+        coarseIdx[2] = rowIdx / (fineNodesPerDir[1]*fineNodesPerDir[0]);
+        rem          = rowIdx % (fineNodesPerDir[1]*fineNodesPerDir[0]);
+        coarseIdx[1] = rem / fineNodesPerDir[0];
+        coarseIdx[0] = rem % fineNodesPerDir[0];
+      }
+      aggregationGraph->fillComplete();
+
+    } else {
+      out << "BlackBoxPFactory test: BBfromGraph, only runs in serial, this test is skipped!"
+          << std::endl;
+    }
+
+  } // BBfromGraph
+
+
 #  define MUELU_ETI_GROUP(Scalar, LO, GO, Node) \
       TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,Constructor,       Scalar,LO,GO,Node) \
       TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,BlackBoxGhosts,    Scalar,LO,GO,Node) \
       TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,GetNodeInfo,       Scalar,LO,GO,Node) \
       TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,Prolongator,       Scalar,LO,GO,Node) \
-      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,BBPoisson,         Scalar,LO,GO,Node)
+      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,BBPoisson,         Scalar,LO,GO,Node) \
+      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT(BlackBoxPFactory,BBfromGraph,       Scalar,LO,GO,Node)
 
 #include <MueLu_ETI_4arg.hpp>
 
