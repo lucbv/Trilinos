@@ -868,23 +868,27 @@ namespace MueLuTests {
     RCP<const Teuchos::Comm<int> > comm = Teuchos::DefaultComm<int>::getComm();
     const int numProcs = comm->getRank();
 
-    if(numProcs == 1) {
+    if(numProcs == 0) {
       // used Xpetra lib (for maps and smoothers)
       Xpetra::UnderlyingLib lib = MueLuTests::TestHelpers::Parameters::getLib();
 
       Teuchos::ParameterList matrixList;
       const int numDimensions = 3;
-      Array<LO> fineNodesPerDir(3);
+      Array<GO> fineNodesPerDir(3);
       fineNodesPerDir[0] = 5;
       fineNodesPerDir[1] = 3;
       fineNodesPerDir[2] = 3;
-      const int numRows = fineNodesPerDir[2]*fineNodesPerDir[1]*fineNodesPerDir[0];
+      const GO numRows = fineNodesPerDir[2]*fineNodesPerDir[1]*fineNodesPerDir[0];
       matrixList.set("nx", fineNodesPerDir[0]);
       matrixList.set("ny", fineNodesPerDir[1]);
       matrixList.set("nz", fineNodesPerDir[2]);
       matrixList.set("matrixType","Laplace3D");
 
       Array<LO> coarseningRate(3, 2);
+      int numNodesPerCoarseElem = 1;
+      for(int dim = 0; dim < numDimensions; ++dim) {
+        numNodesPerCoarseElem *= (coarseningRate[dim] + 1);
+      }
 
       RCP<Map> rowMap = MapFactory::Build(lib, numRows, numRows, 0, comm);
 
@@ -897,22 +901,55 @@ namespace MueLuTests {
       // constant and equal to the number of nnz per row corresponding to a fine
       // points on the mesh. This is an overestimate of nnz since coarse points
       // are injected and only require 1 nnz per row...
-      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(rowMap, 8);
-      Array<LO> colIdx(8), coarseIdx(3);
-      Array<LO> coarseNodesPerDir(3);
+      int numCoarseElems = 1;
+      Array<GO> colIdx(numNodesPerCoarseElem), elemIdx(3);
+      Array<LO> coarseNodesPerDir(3, 1), coarseElemsPerDir(3, 1);
       for (int dim = 0; dim < numDimensions; ++dim) {
         int rem;
         coarseNodesPerDir[dim] = fineNodesPerDir[dim] / coarseningRate[dim];
         rem                    = fineNodesPerDir[dim] % coarseningRate[dim];
+        if(rem != 0) {++coarseNodesPerDir[dim];}
+        if(coarseNodesPerDir[dim] == 1) {
+          coarseElemsPerDir[dim] = 1;
+        } else {
+          coarseElemsPerDir[dim] = coarseNodesPerDir[dim] - 1;
+        }
+        numCoarseElems *= coarseElemsPerDir[dim];
       }
 
-      for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+      out << "numNodesPerCoarseElem= " << numNodesPerCoarseElem << std::endl;
+      out << "numCoarseElems= " << numCoarseElems << std::endl;
+      out << "coarseNodesPerDir: " << coarseNodesPerDir << std::endl;
+      out << "coarseElemsPerDir: " << coarseElemsPerDir << std::endl;
+
+      RCP<Map> aggregationMap = MapFactory::Build(lib, numCoarseElems, numCoarseElems, 0, comm);
+      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(aggregationMap, 8);
+      for(int elem = 0; elem < numCoarseElems; ++elem) {
         // Compute the coarse indices of the current point
-        int rem;
-        coarseIdx[2] = rowIdx / (fineNodesPerDir[1]*fineNodesPerDir[0]);
-        rem          = rowIdx % (fineNodesPerDir[1]*fineNodesPerDir[0]);
-        coarseIdx[1] = rem / fineNodesPerDir[0];
-        coarseIdx[0] = rem % fineNodesPerDir[0];
+        {
+          int rem;
+          elemIdx[2] = elem / (coarseElemsPerDir[1]*coarseElemsPerDir[0]);
+          rem        = elem % (coarseElemsPerDir[1]*coarseElemsPerDir[0]);
+          elemIdx[1] = rem  /  coarseElemsPerDir[0];
+          elemIdx[0] = rem  %  coarseElemsPerDir[0];
+        }
+
+        out << "elem: " << elem << ", elemIdx: " << elemIdx << std::endl;
+        Array<LO> nodeIdx(3);
+        for(int node = 0; node < numNodesPerCoarseElem; ++node) {
+          int rem = 0;
+          nodeIdx[2] = node / ((coarseningRate[1] + 1)*(coarseningRate[0] + 1));
+          rem        = node % ((coarseningRate[1] + 1)*(coarseningRate[0] + 1));
+          nodeIdx[1] = rem / (coarseningRate[0] + 1);
+          nodeIdx[0] = rem % (coarseningRate[0] + 1);
+
+          colIdx[node] =
+            (elemIdx[2]*coarseningRate[2] + nodeIdx[2])*fineNodesPerDir[1]*fineNodesPerDir[0]
+            + (elemIdx[1]*coarseningRate[1] + nodeIdx[1])*fineNodesPerDir[0]
+            + elemIdx[0]*coarseningRate[0] + nodeIdx[0];
+        }
+        out << "colIdx: " << colIdx << std::endl;
+        aggregationGraph->insertGlobalIndices(elem, colIdx());
       }
       aggregationGraph->fillComplete();
 
