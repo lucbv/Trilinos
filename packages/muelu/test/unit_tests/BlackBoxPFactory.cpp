@@ -922,8 +922,9 @@ namespace MueLuTests {
       out << "coarseNodesPerDir: " << coarseNodesPerDir << std::endl;
       out << "coarseElemsPerDir: " << coarseElemsPerDir << std::endl;
 
+      ArrayRCP<size_t> numNnzPerRow(2, 8);
       RCP<Map> aggregationMap = MapFactory::Build(lib, numCoarseElems, numCoarseElems, 0, comm);
-      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(aggregationMap, 8);
+      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(aggregationMap, rowMap, numNnzPerRow);
       for(int elem = 0; elem < numCoarseElems; ++elem) {
         // Compute the coarse indices of the current point
         {
@@ -949,7 +950,7 @@ namespace MueLuTests {
             + elemIdx[0]*coarseningRate[0] + nodeIdx[0];
         }
         out << "colIdx: " << colIdx << std::endl;
-        aggregationGraph->insertGlobalIndices(elem, colIdx());
+        aggregationGraph->insertLocalIndices(elem, colIdx());
       }
       aggregationGraph->fillComplete();
 
