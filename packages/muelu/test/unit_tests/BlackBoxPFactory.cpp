@@ -902,7 +902,7 @@ namespace MueLuTests {
       // points on the mesh. This is an overestimate of nnz since coarse points
       // are injected and only require 1 nnz per row...
       int numCoarseElems = 1;
-      Array<GO> colIdx(numNodesPerCoarseElem), elemIdx(3);
+      Array<LO> colIdx(numNodesPerCoarseElem), elemIdx(3);
       Array<LO> coarseNodesPerDir(3, 1), coarseElemsPerDir(3, 1);
       for (int dim = 0; dim < numDimensions; ++dim) {
         int rem;
