@@ -136,9 +136,10 @@ namespace MueLu {
 
   }
 
-  template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
-  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildP(Level& fineLevel,
-                                                                           Level& coarseLevel)const{
+  template <Class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildPCrs(Level& fineLevel,
+                                                                             Level& coarseLevel,
+                                                                             CrsGraph connectivity) const{
     FactoryMonitor m(*this, "Build", coarseLevel);
 
     // Get parameter list
@@ -152,120 +153,22 @@ namespace MueLu {
     LO numDimensions  = coordinates->getNumVectors();
     LO BlkSize = A->GetFixedBlockSize();
 
-    // Get fine level geometric data: g(l)FineNodesPerDir and g(l)NumFineNodes
-    Array<GO> gFineNodesPerDir(3);
-    Array<LO> lFineNodesPerDir(3);
-    // Get the number of points in each direction
-    if(fineLevel.GetLevelID() == 0) {
-      gFineNodesPerDir = fineLevel.Get<Array<GO> >("gNodesPerDim", NoFactory::get());
-      lFineNodesPerDir = fineLevel.Get<Array<LO> >("lNodesPerDim", NoFactory::get());
-    } else {
-      // Loading global number of nodes per diretions
-      gFineNodesPerDir = Get<Array<GO> >(fineLevel, "gNodesPerDim");
-
-      // Loading local number of nodes per diretions
-      lFineNodesPerDir = Get<Array<LO> >(fineLevel, "lNodesPerDim");
-    }
-    for(LO i = 0; i < 3; ++i) {
-      if(gFineNodesPerDir[i] == 0) {
-        GetOStream(Runtime0) << "gNodesPerDim in direction " << i << " is set to 1 from 0"
-                             << std::endl;
-        gFineNodesPerDir[i] = 1;
-      }
-      if(lFineNodesPerDir[i] == 0) {
-        GetOStream(Runtime0) << "lNodesPerDim in direction " << i << " is set to 1 from 0"
-                             << std::endl;
-        lFineNodesPerDir[i] = 1;
-      }
-    }
-    GO gNumFineNodes = gFineNodesPerDir[2]*gFineNodesPerDir[1]*gFineNodesPerDir[0];
-    LO lNumFineNodes = lFineNodesPerDir[2]*lFineNodesPerDir[1]*lFineNodesPerDir[0];
-
-    // Get the coarsening rate
-    std::string coarsenRate = pL.get<std::string>("Coarsen");
-    Array<LO> coarseRate(3);
-    {
-      Teuchos::Array<LO> crates;
-      try {
-        crates = Teuchos::fromStringToArray<LO>(coarsenRate);
-      } catch(const Teuchos::InvalidArrayStringRepresentation e) {
-        GetOStream(Errors,-1) << " *** Coarsen must be a string convertible into an array! *** "
-                              << std::endl;
-        throw e;
-      }
-      TEUCHOS_TEST_FOR_EXCEPTION((crates.size() > 1) && (crates.size() < numDimensions),
-                                 Exceptions::RuntimeError,
-                                 "Coarsen must have at least as many components as the number of"
-                                 " spatial dimensions in the problem.");
-      for(LO i = 0; i < 3; ++i) {
-        if(i < numDimensions) {
-          if(crates.size() == 1) {
-            coarseRate[i] = crates[0];
-          } else if(i < crates.size()) {
-            coarseRate[i] = crates[i];
-          } else {
-            GetOStream(Errors,-1) << " *** Coarsen must be at least as long as the number of"
-              " spatial dimensions! *** " << std::endl;
-            throw Exceptions::RuntimeError(" *** Coarsen must be at least as long as the number of"
-                                           " spatial dimensions! *** \n");
-          }
-        } else {
-          coarseRate[i] = 1;
-        }
-      }
-    } // End of scope for crates
-
-    // Get the stencil type used for discretization
-    const std::string stencilType = pL.get<std::string>("stencil type");
-    if(stencilType != "full" && stencilType != "reduced") {
-      GetOStream(Errors,-1) << " *** stencil type must be set to: full or reduced, any other value "
-              "is trated as an error! *** " << std::endl;
-      throw Exceptions::RuntimeError(" *** stencil type is neither full, nor reduced! *** \n");
-    }
-
-    // Get the strategy for PDE systems
-    const std::string blockStrategy = pL.get<std::string>("block strategy");
-    if(blockStrategy != "coupled" && blockStrategy != "uncoupled") {
-      GetOStream(Errors,-1) << " *** block strategy must be set to: coupled or uncoupled, any other "
-              "value is trated as an error! *** " << std::endl;
-      throw Exceptions::RuntimeError(" *** block strategy is neither coupled, nor uncoupled! *** \n");
-    }
-
-    GO gNumCoarseNodes = 0;
-    LO lNumCoarseNodes = 0;
-    Array<GO> gIndices(3), gCoarseNodesPerDir(3), ghostGIDs, coarseNodesGIDs, colGIDs;
-    Array<LO> myOffset(3), lCoarseNodesPerDir(3), glCoarseNodesPerDir(3), endRate(3);
-    Array<bool> ghostInterface(6);
-    Array<int> boundaryFlags(3);
-    ArrayRCP<Array<double> > coarseNodes(numDimensions);
-    Array<ArrayView<const double> > fineNodes(numDimensions);
-    for(LO dim = 0; dim < numDimensions; ++dim) {fineNodes[dim] = coordinates->getData(dim)();}
-
-    // This struct stores PIDs, LIDs and GIDs on the fine mesh and GIDs on the coarse mesh.
-    RCP<NodesIDs> ghostedCoarseNodes = rcp(new NodesIDs{});
-
-    GetGeometricData(coordinates, coarseRate, gFineNodesPerDir, lFineNodesPerDir, BlkSize,// inputs
-                     gIndices, myOffset, ghostInterface, endRate, gCoarseNodesPerDir,     // outputs
-                     lCoarseNodesPerDir, glCoarseNodesPerDir, ghostGIDs, coarseNodesGIDs, colGIDs,
-                     gNumCoarseNodes, lNumCoarseNodes, coarseNodes, boundaryFlags,
-                     ghostedCoarseNodes);
-
     // Create the MultiVector of coarse coordinates
-    Xpetra::UnderlyingLib lib = coordinates->getMap()->lib();
-    RCP<const Map> coarseCoordsMap = MapFactory::Build (lib,
-                                                        gNumCoarseNodes,
-                                                        coarseNodesGIDs.view(0, lNumCoarseNodes),
-                                                        coordinates->getMap()->getIndexBase(),
-                                                        coordinates->getMap()->getComm());
-    Array<ArrayView<const double> > coarseCoords(numDimensions);
-    for(LO dim = 0; dim < numDimensions; ++dim) {
-      coarseCoords[dim] = coarseNodes[dim]();
-    }
-    RCP<Xpetra::MultiVector<double,LO,GO,NO> > coarseCoordinates =
-      Xpetra::MultiVectorFactory<double,LO,GO,NO>::Build(coarseCoordsMap, coarseCoords(),
-                                                         numDimensions);
+    // Xpetra::UnderlyingLib lib = coordinates->getMap()->lib();
+    // RCP<const Map> coarseCoordsMap = MapFactory::Build (lib,
+    //                                                     gNumCoarseNodes,
+    //                                                     coarseNodesGIDs.view(0, lNumCoarseNodes),
+    //                                                     coordinates->getMap()->getIndexBase(),
+    //                                                     coordinates->getMap()->getComm());
+    // Array<ArrayView<const double> > coarseCoords(numDimensions);
+    // for(LO dim = 0; dim < numDimensions; ++dim) {
+    //   coarseCoords[dim] = coarseNodes[dim]();
+    // }
+    // RCP<Xpetra::MultiVector<double,LO,GO,NO> > coarseCoordinates =
+    //   Xpetra::MultiVectorFactory<double,LO,GO,NO>::Build(coarseCoordsMap, coarseCoords(),
+    //                                                      numDimensions);
 
-    // Now create a new matrix: Aghost that contains all the data
+    // Now create a new matrix: Aghosted that contains all the data
     // locally needed to compute the local part of the prolongator.
     // Here assuming that all the coarse nodes o and fine nodes +
     // are local then all the data associated with the coarse
@@ -295,81 +198,7 @@ namespace MueLu {
     // change at the boundary!
 
     // The ingredients needed are an importer, a range map and a domain map
-    Array<GO> ghostRowGIDs, ghostColGIDs, nodeSteps(3);
-    nodeSteps[0] = 1;
-    nodeSteps[1] = gFineNodesPerDir[0];
-    nodeSteps[2] = gFineNodesPerDir[0]*gFineNodesPerDir[1];
-    Array<LO> glFineNodesPerDir(3);
-    GO startingGID = A->getRowMap()->getMinGlobalIndex();
-    for(LO dim = 0; dim < 3; ++dim) {
-      LO numCoarseNodes = 0;
-      if(dim < numDimensions) {
-        startingGID -= myOffset[dim]*nodeSteps[dim];
-        numCoarseNodes = lCoarseNodesPerDir[dim];
-        if(ghostInterface[2*dim]) {++numCoarseNodes;}
-        if(ghostInterface[2*dim+1]) {++numCoarseNodes;}
-        if(gIndices[dim] + lFineNodesPerDir[dim] == gFineNodesPerDir[dim]) {
-          glFineNodesPerDir[dim] = (numCoarseNodes - 2)*coarseRate[dim] + endRate[dim] + 1;
-        } else {
-          glFineNodesPerDir[dim] = (numCoarseNodes - 1)*coarseRate[dim] + 1;
-        }
-      } else {
-        glFineNodesPerDir[dim] = 1;
-      }
-    }
-    ghostRowGIDs.resize(glFineNodesPerDir[0]*glFineNodesPerDir[1]*glFineNodesPerDir[2]*BlkSize);
-    for(LO k = 0; k < glFineNodesPerDir[2]; ++k) {
-      for(LO j = 0; j < glFineNodesPerDir[1]; ++j) {
-        for(LO i = 0; i < glFineNodesPerDir[0]; ++i) {
-          for(LO l = 0; l < BlkSize; ++l) {
-            ghostRowGIDs[(k*glFineNodesPerDir[1]*glFineNodesPerDir[0]
-                          + j*glFineNodesPerDir[0] + i)*BlkSize + l] = startingGID
-              + (k*gFineNodesPerDir[1]*gFineNodesPerDir[0] + j*gFineNodesPerDir[0] + i)*BlkSize + l;
-          }
-        }
-      }
-    }
 
-    // Looking at the above loops it is easy to find startingGID for the ghostColGIDs
-    Array<GO> startingGlobalIndices(numDimensions), dimStride(numDimensions);
-    Array<GO> startingColIndices(numDimensions), finishingColIndices(numDimensions);
-    GO colMinGID = 0;
-    Array<LO> colRange(numDimensions);
-    dimStride[0] = 1;
-    for(int dim = 1; dim < numDimensions; ++dim) {
-      dimStride[dim] = dimStride[dim - 1]*gFineNodesPerDir[dim - 1];
-    }
-    {
-      GO tmp = startingGID;
-      for(int dim = numDimensions; dim > 0; --dim) {
-        startingGlobalIndices[dim - 1] = tmp / dimStride[dim - 1];
-        tmp = tmp % dimStride[dim - 1];
-
-        if(startingGlobalIndices[dim - 1] > 0) {
-          startingColIndices[dim - 1] = startingGlobalIndices[dim - 1] - 1;
-        }
-        if(startingGlobalIndices[dim - 1] + glFineNodesPerDir[dim - 1] < gFineNodesPerDir[dim - 1]){
-          finishingColIndices[dim - 1] = startingGlobalIndices[dim - 1]
-            + glFineNodesPerDir[dim - 1];
-        } else {
-          finishingColIndices[dim - 1] = startingGlobalIndices[dim - 1]
-            + glFineNodesPerDir[dim - 1] - 1;
-        }
-        colRange[dim - 1] = finishingColIndices[dim - 1] - startingColIndices[dim - 1] + 1;
-        colMinGID += startingColIndices[dim - 1]*dimStride[dim - 1];
-      }
-    }
-    ghostColGIDs.resize(colRange[0]*colRange[1]*colRange[2]*BlkSize);
-    for(LO k = 0; k < colRange[2]; ++k) {
-      for(LO j = 0; j < colRange[1]; ++j) {
-        for(LO i = 0; i < colRange[0]; ++i) {
-          for(LO l = 0; l < BlkSize; ++l) {
-            ghostColGIDs[(k*colRange[1]*colRange[0] + j*colRange[0] + i)*BlkSize + l] = colMinGID
-              + (k*gFineNodesPerDir[1]*gFineNodesPerDir[0] + j*gFineNodesPerDir[0] + i)*BlkSize + l;
-          }
-        }
-      }
-    }
 
     RCP<const Map> ghostedRowMap = Xpetra::MapFactory<LO,GO,NO>::Build(A->getRowMap()->lib(),
                                            Teuchos::OrdinalTraits<Xpetra::global_size_t>::invalid(),
@@ -383,7 +212,7 @@ namespace MueLu {
                                            A->getRowMap()->getComm());
     RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
                                                                              ghostedRowMap);
-    RCP<const Matrix> Aghost        = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
+    RCP<const Matrix> Aghosted        = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
                                                                                 ghostedRowMap,
                                                                                 ghostedRowMap);
 
@@ -558,7 +387,528 @@ namespace MueLu {
           // Compute the element prolongator
           Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
           Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-          ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, lCoarseElementsPerDir,
+          ComputeLocalEntries(Aghosted, coarseRate, endRate, BlkSize, elemInds, lCoarseElementsPerDir,
+                              numDimensions, glFineNodesPerDir, gFineNodesPerDir, gIndices,
+                              lCoarseNodesPerDir, ghostInterface, elementFlags, stencilType,
+                              blockStrategy, elementNodesPerDir, numNodesInElement, colGIDs,
+                              Pi, Pf, Pe, dofType, lDofInd);
+
+          // Find ghosted LID associated with nodes in the element and eventually which of these
+          // nodes are ghosts, this information is used to fill the local prolongator.
+          Array<LO> lNodeLIDs(numNodesInElement);
+          {
+            Array<LO> lNodeTuple(3), nodeInd(3);
+            for(nodeInd[2] = 0; nodeInd[2] < elementNodesPerDir[2]; ++nodeInd[2]) {
+              for(nodeInd[1] = 0; nodeInd[1] < elementNodesPerDir[1]; ++nodeInd[1]) {
+                for(nodeInd[0] = 0; nodeInd[0] < elementNodesPerDir[0]; ++nodeInd[0]) {
+                  int stencilLength = 0;
+                  if((nodeInd[0] == 0 || nodeInd[0] == elementNodesPerDir[0] - 1) &&
+                     (nodeInd[1] == 0 || nodeInd[1] == elementNodesPerDir[1] - 1) &&
+                     (nodeInd[2] == 0 || nodeInd[2] == elementNodesPerDir[2] - 1)) {
+                    stencilLength = 1;
+                  } else {
+                    stencilLength = std::pow(2, numDimensions);
+                  }
+                  LO nodeElementInd = nodeInd[2]*elementNodesPerDir[1]*elementNodesPerDir[1]
+                    + nodeInd[1]*elementNodesPerDir[0] + nodeInd[0];
+                  for(int dim = 0; dim < 3; ++dim) {
+                    lNodeTuple[dim] = glElementRefTuple[dim] - myOffset[dim] + nodeInd[dim];
+                  }
+                  if(lNodeTuple[0] < 0 || lNodeTuple[1] < 0 || lNodeTuple[2] < 0 ||
+                     lNodeTuple[0] > lFineNodesPerDir[0] - 1 ||
+                     lNodeTuple[1] > lFineNodesPerDir[1] - 1 ||
+                     lNodeTuple[2] > lFineNodesPerDir[2] - 1) {
+                    // This flags the ghosts nodes used for prolongator calculation but for which
+                    // we do not own the row, hence we won't fill these values on this rank.
+                    lNodeLIDs[nodeElementInd] = -1;
+                  } else if ((nodeInd[0] == 0 && elemInds[0] !=0) ||
+                             (nodeInd[1] == 0 && elemInds[1] !=0) ||
+                             (nodeInd[2] == 0 && elemInds[2] !=0)) {
+                    // This flags nodes that are owned but common to two coarse elements and that
+                    // were already filled by another element, we don't want to fill them twice so
+                    // we skip them
+                    lNodeLIDs[nodeElementInd] = -2;
+                  } else {
+                    // The remaining nodes are locally owned and we need to fill the coresponding
+                    // rows of the prolongator
+
+                    // First we need to find which row needs to be filled
+                    lNodeLIDs[nodeElementInd] = lNodeTuple[2]*lFineNodesPerDir[1]*lFineNodesPerDir[0]
+                      + lNodeTuple[1]*lFineNodesPerDir[0] + lNodeTuple[0];
+
+                    // We also compute the row offset using arithmetic to ensure that we can loop
+                    // easily over the nodes in a macro-element as well as facilitate on-node
+                    // parallelization. The node serial code could be rewritten with two loops over
+                    // the local part of the mesh to avoid the costly integer divisions...
+                    Array<LO> refCoarsePointTuple(3);
+                    for(int dim = 2; dim > -1; --dim) {
+                      if(dim == 0) {
+                        refCoarsePointTuple[dim] = (lNodeTuple[dim] + myOffset[dim]) / coarseRate[dim];
+                        if(myOffset[dim] == 0) {
+                          ++refCoarsePointTuple[dim];
+                        }
+                      } else {
+                        refCoarsePointTuple[dim] =
+                          std::ceil(static_cast<double>(lNodeTuple[dim] + myOffset[dim])
+                                    / coarseRate[dim]);
+                      }
+                      if((lNodeTuple[dim] + myOffset[dim]) % coarseRate[dim] > 0) {break;}
+                    }
+                    const LO numCoarsePoints = refCoarsePointTuple[0]
+                      + refCoarsePointTuple[1]*lCoarseNodesPerDir[0]
+                      + refCoarsePointTuple[2]*lCoarseNodesPerDir[1]*lCoarseNodesPerDir[0];
+                    const LO numFinePoints = lNodeLIDs[nodeElementInd] + 1;
+
+                    // The below formula computes the rowPtr for row 'n+BlkSize' and we are about to
+                    // fill row 'n' to 'n+BlkSize'.
+                    size_t rowPtr = (numFinePoints - numCoarsePoints)*numRowsPerPoint
+                      *numCoarseNodesInElement*nnzPerCoarseNode + numCoarsePoints*numRowsPerPoint;
+                    if(dofType[nodeElementInd*BlkSize] == 0) {
+                      // Check if current node is a coarse point
+                      rowPtr = rowPtr - numRowsPerPoint;
+                    } else {
+                      rowPtr = rowPtr - numRowsPerPoint*numCoarseNodesInElement*nnzPerCoarseNode;
+                    }
+
+                    for(int dof = 0; dof < BlkSize; ++dof) {
+
+                      // Now we loop over the stencil and fill the column indices and row values
+                      int cornerInd = 0;
+                      switch(dofType[nodeElementInd*BlkSize + dof]) {
+                      case 0: // Corner node
+                        if(nodeInd[2] == elementNodesPerDir[2] - 1) {cornerInd += 4;}
+                        if(nodeInd[1] == elementNodesPerDir[1] - 1) {cornerInd += 2;}
+                        if(nodeInd[0] == elementNodesPerDir[0] - 1) {cornerInd += 1;}
+                        ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1] = rowPtr + dof + 1;
+                        ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[cornerInd]]*BlkSize + dof;
+                        val[rowPtr + dof] = 1.0;
+                        break;
+
+                      case 1: // Edge node
+                        ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+                          = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+                        for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+                          if(blockStrategy == "coupled") {
+                            for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                              size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                                + ind1*BlkSize + ind2;
+                              ja[lRowPtr]  = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                              val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
+                                                ind1*BlkSize + ind2);
+                            }
+                          } else if(blockStrategy == "uncoupled") {
+                            size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                              + ind1;
+                            ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                            val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
+                                              ind1*BlkSize + dof);
+                          }
+                        }
+                        break;
+
+                      case 2: // Face node
+                        ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+                          = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+                        for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+                          if(blockStrategy == "coupled") {
+                            for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                              size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                                + ind1*BlkSize + ind2;
+                              ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                              val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
+                                                ind1*BlkSize + ind2);
+                            }
+                          } else if(blockStrategy == "uncoupled") {
+                            size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                              + ind1;
+                            // ja [lRowPtr] = colGIDs[glElementCoarseNodeCG[ind1]*BlkSize + dof];
+                            ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                            val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
+                                              ind1*BlkSize + dof);
+                          }
+                        }
+                        break;
+
+                      case 3: // Interior node
+                        ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+                          = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+                        for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+                          if(blockStrategy == "coupled") {
+                            for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                              size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                                + ind1*BlkSize + ind2;
+                              ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                              val[lRowPtr] = Pi(lDofInd[nodeElementInd*BlkSize + dof],
+                                                ind1*BlkSize + ind2);
+                            }
+                          } else if(blockStrategy == "uncoupled") {
+                            size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                              + ind1;
+                            ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                            val[lRowPtr] = Pi(lDofInd[nodeElementInd*BlkSize + dof],
+                                              ind1*BlkSize + dof);
+                          }
+                        }
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } // End of scopt for lNodeTuple and nodeInd
+        }
+      }
+    }
+
+    // Sort all row's column indicies and entries by LID
+    Xpetra::CrsMatrixUtils<SC,LO,GO,NO>::sortCrsEntries(ia, ja, val, rowMapP->lib());
+
+    // Set the values of the prolongation operators into the CrsMatrix P and call FillComplete
+    PCrs->setAllValues(iaP, jaP, valP);
+    PCrs->expertStaticFillComplete(domainMapP,rowMapP);
+
+    // set StridingInformation of P
+    if (A->IsView("stridedMaps") == true) {
+      P->CreateView("stridedMaps", A->getRowMap("stridedMaps"), stridedDomainMapP);
+    } else {
+      P->CreateView("stridedMaps", P->getRangeMap(), stridedDomainMapP);
+    }
+
+    // store the transfer operator and node coordinates on coarse level
+    Set(coarseLevel, "P", P);
+    Set(coarseLevel, "coarseCoordinates", coarseCoordinates);
+    Set<Array<GO> >(coarseLevel, "gCoarseNodesPerDim", gCoarseNodesPerDir);
+    Set<Array<LO> >(coarseLevel, "lCoarseNodesPerDim", lCoarseNodesPerDir);
+
+  }
+
+
+  template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildP(Level& fineLevel,
+                                                                           Level& coarseLevel)const{
+    FactoryMonitor m(*this, "Build", coarseLevel);
+
+    // Get parameter list
+    const ParameterList& pL = GetParameterList();
+
+    // obtain general variables
+    RCP<Matrix>      A             = Get< RCP<Matrix> >      (fineLevel, "A");
+    RCP<MultiVector> fineNullspace = Get< RCP<MultiVector> > (fineLevel, "Nullspace");
+    RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
+      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(fineLevel, "Coordinates");
+    LO numDimensions  = coordinates->getNumVectors();
+    LO BlkSize = A->GetFixedBlockSize();
+
+    // Create the MultiVector of coarse coordinates
+    // Xpetra::UnderlyingLib lib = coordinates->getMap()->lib();
+    // RCP<const Map> coarseCoordsMap = MapFactory::Build (lib,
+    //                                                     gNumCoarseNodes,
+    //                                                     coarseNodesGIDs.view(0, lNumCoarseNodes),
+    //                                                     coordinates->getMap()->getIndexBase(),
+    //                                                     coordinates->getMap()->getComm());
+    // Array<ArrayView<const double> > coarseCoords(numDimensions);
+    // for(LO dim = 0; dim < numDimensions; ++dim) {
+    //   coarseCoords[dim] = coarseNodes[dim]();
+    // }
+    // RCP<Xpetra::MultiVector<double,LO,GO,NO> > coarseCoordinates =
+    //   Xpetra::MultiVectorFactory<double,LO,GO,NO>::Build(coarseCoordsMap, coarseCoords(),
+    //                                                      numDimensions);
+
+    // Now create a new matrix: Aghosted that contains all the data
+    // locally needed to compute the local part of the prolongator.
+    // Here assuming that all the coarse nodes o and fine nodes +
+    // are local then all the data associated with the coarse
+    // nodes O and the fine nodes * needs to be imported.
+    //
+    //                  *--*--*--*--*--*--*--*
+    //                  |  |  |  |  |  |  |  |
+    //                  o--+--+--o--+--+--O--*
+    //                  |  |  |  |  |  |  |  |
+    //                  +--+--+--+--+--+--*--*
+    //                  |  |  |  |  |  |  |  |
+    //                  +--+--+--+--+--+--*--*
+    //                  |  |  |  |  |  |  |  |
+    //                  o--+--+--o--+--+--O--*
+    //                  |  |  |  |  |  |  |  |
+    //                  +--+--+--+--+--+--*--*
+    //                  |  |  |  |  |  |  |  |
+    //                  *--*--*--*--*--*--*--*
+    //                  |  |  |  |  |  |  |  |
+    //                  O--*--*--O--*--*--O--*
+    //
+    // Creating that local matrix is easy enough using proper range
+    // and domain maps to import data from A. Note that with this
+    // approach we reorder the local entries using the domain map and
+    // can subsequently compute the prolongator without reordering.
+    // As usual we need to be careful about any coarsening rate
+    // change at the boundary!
+
+    // The ingredients needed are an importer, a range map and a domain map
+    Array<GO> ghostRowGIDs, ghostColGIDs, nodeSteps(3);
+    nodeSteps[0] = 1;
+    nodeSteps[1] = gFineNodesPerDir[0];
+    nodeSteps[2] = gFineNodesPerDir[0]*gFineNodesPerDir[1];
+    Array<LO> glFineNodesPerDir(3);
+    GO startingGID = A->getRowMap()->getMinGlobalIndex();
+    for(LO dim = 0; dim < 3; ++dim) {
+      LO numCoarseNodes = 0;
+      if(dim < numDimensions) {
+        startingGID -= myOffset[dim]*nodeSteps[dim];
+        numCoarseNodes = lCoarseNodesPerDir[dim];
+        if(ghostInterface[2*dim]) {++numCoarseNodes;}
+        if(ghostInterface[2*dim+1]) {++numCoarseNodes;}
+        if(gIndices[dim] + lFineNodesPerDir[dim] == gFineNodesPerDir[dim]) {
+          glFineNodesPerDir[dim] = (numCoarseNodes - 2)*coarseRate[dim] + endRate[dim] + 1;
+        } else {
+          glFineNodesPerDir[dim] = (numCoarseNodes - 1)*coarseRate[dim] + 1;
+        }
+      } else {
+        glFineNodesPerDir[dim] = 1;
+      }
+    }
+    ghostRowGIDs.resize(glFineNodesPerDir[0]*glFineNodesPerDir[1]*glFineNodesPerDir[2]*BlkSize);
+    for(LO k = 0; k < glFineNodesPerDir[2]; ++k) {
+      for(LO j = 0; j < glFineNodesPerDir[1]; ++j) {
+        for(LO i = 0; i < glFineNodesPerDir[0]; ++i) {
+          for(LO l = 0; l < BlkSize; ++l) {
+            ghostRowGIDs[(k*glFineNodesPerDir[1]*glFineNodesPerDir[0]
+                          + j*glFineNodesPerDir[0] + i)*BlkSize + l] = startingGID
+              + (k*gFineNodesPerDir[1]*gFineNodesPerDir[0] + j*gFineNodesPerDir[0] + i)*BlkSize + l;
+          }
+        }
+      }
+    }
+
+    // Looking at the above loops it is easy to find startingGID for the ghostColGIDs
+    Array<GO> startingGlobalIndices(numDimensions), dimStride(numDimensions);
+    Array<GO> startingColIndices(numDimensions), finishingColIndices(numDimensions);
+    GO colMinGID = 0;
+    Array<LO> colRange(numDimensions);
+    dimStride[0] = 1;
+    for(int dim = 1; dim < numDimensions; ++dim) {
+      dimStride[dim] = dimStride[dim - 1]*gFineNodesPerDir[dim - 1];
+    }
+    {
+      GO tmp = startingGID;
+      for(int dim = numDimensions; dim > 0; --dim) {
+        startingGlobalIndices[dim - 1] = tmp / dimStride[dim - 1];
+        tmp = tmp % dimStride[dim - 1];
+
+        if(startingGlobalIndices[dim - 1] > 0) {
+          startingColIndices[dim - 1] = startingGlobalIndices[dim - 1] - 1;
+        }
+        if(startingGlobalIndices[dim - 1] + glFineNodesPerDir[dim - 1] < gFineNodesPerDir[dim - 1]){
+          finishingColIndices[dim - 1] = startingGlobalIndices[dim - 1]
+            + glFineNodesPerDir[dim - 1];
+        } else {
+          finishingColIndices[dim - 1] = startingGlobalIndices[dim - 1]
+            + glFineNodesPerDir[dim - 1] - 1;
+        }
+        colRange[dim - 1] = finishingColIndices[dim - 1] - startingColIndices[dim - 1] + 1;
+        colMinGID += startingColIndices[dim - 1]*dimStride[dim - 1];
+      }
+    }
+    ghostColGIDs.resize(colRange[0]*colRange[1]*colRange[2]*BlkSize);
+    for(LO k = 0; k < colRange[2]; ++k) {
+      for(LO j = 0; j < colRange[1]; ++j) {
+        for(LO i = 0; i < colRange[0]; ++i) {
+          for(LO l = 0; l < BlkSize; ++l) {
+            ghostColGIDs[(k*colRange[1]*colRange[0] + j*colRange[0] + i)*BlkSize + l] = colMinGID
+              + (k*gFineNodesPerDir[1]*gFineNodesPerDir[0] + j*gFineNodesPerDir[0] + i)*BlkSize + l;
+          }
+        }
+      }
+    }
+
+    RCP<const Map> ghostedRowMap = Xpetra::MapFactory<LO,GO,NO>::Build(A->getRowMap()->lib(),
+                                           Teuchos::OrdinalTraits<Xpetra::global_size_t>::invalid(),
+                                           ghostRowGIDs(),
+                                           A->getRowMap()->getIndexBase(),
+                                           A->getRowMap()->getComm());
+    RCP<const Map> ghostedColMap = Xpetra::MapFactory<LO,GO,NO>::Build(A->getRowMap()->lib(),
+                                           Teuchos::OrdinalTraits<Xpetra::global_size_t>::invalid(),
+                                           ghostColGIDs(),
+                                           A->getRowMap()->getIndexBase(),
+                                           A->getRowMap()->getComm());
+    RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
+                                                                             ghostedRowMap);
+    RCP<const Matrix> Aghosted        = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
+                                                                                ghostedRowMap,
+                                                                                ghostedRowMap);
+
+    // Create the maps and data structures for the projection matrix
+    RCP<const Map> rowMapP    = A->getDomainMap();
+
+    RCP<const Map> domainMapP;
+
+    RCP<const Map> colMapP;
+
+    // At this point we need to create the column map which is a delicate operation.
+    // The entries in that map need to be ordered as follows:
+    //         1) first owned entries ordered by LID
+    //         2) second order the remaining entries by PID
+    //         3) entries with the same remote PID are ordered by GID.
+    // One piece of good news: lNumCoarseNodes is the number of ownedNodes and lNumGhostNodes
+    // is the number of remote nodes. The sorting can be limited to remote nodes
+    // as the owned ones are alreaded ordered by LID!
+
+    LO lNumGhostedNodes = ghostedCoarseNodes->GIDs.size();
+    {
+      std::vector<NodeID> colMapOrdering(lNumGhostedNodes);
+      for(LO ind = 0; ind < lNumGhostedNodes; ++ind) {
+        colMapOrdering[ind].GID = ghostedCoarseNodes->GIDs[ind];
+        if(ghostedCoarseNodes->PIDs[ind] == rowMapP->getComm()->getRank()) {
+          colMapOrdering[ind].PID = -1;
+        } else {
+          colMapOrdering[ind].PID = ghostedCoarseNodes->PIDs[ind];
+        }
+        colMapOrdering[ind].LID = ghostedCoarseNodes->LIDs[ind];
+        colMapOrdering[ind].lexiInd = ind;
+      }
+      std::sort(colMapOrdering.begin(), colMapOrdering.end(),
+                [](NodeID a, NodeID b)->bool{
+                  return ( (a.PID < b.PID) || ((a.PID == b.PID) && (a.GID < b.GID)) );
+                });
+
+      colGIDs.resize(BlkSize*lNumGhostedNodes);
+      for(LO ind = 0; ind < lNumGhostedNodes; ++ind) {
+        // Save the permutation calculated to go from Lexicographic indexing to column map indexing
+        ghostedCoarseNodes->colInds[colMapOrdering[ind].lexiInd] = ind;
+        for(LO dof = 0; dof < BlkSize; ++dof) {
+          colGIDs[BlkSize*ind + dof] = BlkSize*colMapOrdering[ind].GID + dof;
+        }
+      }
+      domainMapP = Xpetra::MapFactory<LO,GO,NO>::Build(rowMapP->lib(),
+                                                       BlkSize*gNumCoarseNodes,
+                                                       colGIDs.view(0,BlkSize*lNumCoarseNodes),
+                                                       rowMapP->getIndexBase(),
+                                                       rowMapP->getComm());
+      colMapP = Xpetra::MapFactory<LO,GO,NO>::Build(rowMapP->lib(),
+                                                    Teuchos::OrdinalTraits<Xpetra::global_size_t>::invalid(),
+                                                    colGIDs.view(0, colGIDs.size()),
+                                                    rowMapP->getIndexBase(),
+                                                    rowMapP->getComm());
+    } // End of scope for colMapOrdering and colGIDs
+
+    std::vector<size_t> strideInfo(1);
+    strideInfo[0] = BlkSize;
+    RCP<const Map> stridedDomainMapP = Xpetra::StridedMapFactory<LO,GO,NO>::Build(domainMapP,
+                                                                                  strideInfo);
+
+    GO gnnzP = 0;
+    LO lnnzP = 0;
+    // coarse points have one nnz per row
+    gnnzP += gNumCoarseNodes;
+    lnnzP += lNumCoarseNodes;
+    // add all other points multiplying by 2^numDimensions
+    gnnzP += (gNumFineNodes - gNumCoarseNodes)*std::pow(2, numDimensions);
+    lnnzP += (lNumFineNodes - lNumCoarseNodes)*std::pow(2, numDimensions);
+    // finally multiply by the number of dofs per node
+    gnnzP = gnnzP*BlkSize;
+    lnnzP = lnnzP*BlkSize;
+
+    // Create the matrix itself using the above maps
+    RCP<Matrix> P;
+    P = rcp(new CrsMatrixWrap(rowMapP, colMapP, 0, Xpetra::StaticProfile));
+    RCP<CrsMatrix> PCrs = rcp_dynamic_cast<CrsMatrixWrap>(P)->getCrsMatrix();
+
+    ArrayRCP<size_t>  iaP;
+    ArrayRCP<LO>      jaP;
+    ArrayRCP<SC>     valP;
+
+    PCrs->allocateAllValues(lnnzP, iaP, jaP, valP);
+
+    ArrayView<size_t> ia  = iaP();
+    ArrayView<LO>     ja  = jaP();
+    ArrayView<SC>     val = valP();
+    ia[0] = 0;
+
+
+    LO numCoarseElements = 1;
+    Array<LO> lCoarseElementsPerDir(3);
+    for(LO dim = 0; dim < numDimensions; ++dim) {
+      lCoarseElementsPerDir[dim] = lCoarseNodesPerDir[dim];
+      if(ghostInterface[2*dim]) {++lCoarseElementsPerDir[dim];}
+      if(!ghostInterface[2*dim+1]) {--lCoarseElementsPerDir[dim];}
+      numCoarseElements = numCoarseElements*lCoarseElementsPerDir[dim];
+    }
+
+    for(LO dim = numDimensions; dim < 3; ++dim) {
+      lCoarseElementsPerDir[dim] = 1;
+    }
+
+    // Loop over the coarse elements
+    Array<int> elementFlags(3);
+    Array<LO> elemInds(3), elementNodesPerDir(3), glElementRefTuple(3);
+    Array<LO> glElementRefTupleCG(3), glElementCoarseNodeCG(8);
+    const int numCoarseNodesInElement = std::pow(2, numDimensions);
+    const int nnzPerCoarseNode = (blockStrategy == "coupled") ? BlkSize : 1;
+    const int numRowsPerPoint = BlkSize;
+    for(elemInds[2] = 0; elemInds[2] < lCoarseElementsPerDir[2]; ++elemInds[2]) {
+      for(elemInds[1] = 0; elemInds[1] < lCoarseElementsPerDir[1]; ++elemInds[1]) {
+        for(elemInds[0] = 0; elemInds[0] < lCoarseElementsPerDir[0]; ++elemInds[0]) {
+          elementFlags[0] = 0; elementFlags[1] = 0; elementFlags[2] = 0;
+          for(int dim = 0; dim < 3; ++dim) {
+            // Detect boundary conditions on the element and set corresponding flags.
+            if(elemInds[dim] == 0 && elemInds[dim] == lCoarseElementsPerDir[dim] - 1) {
+              elementFlags[dim] = boundaryFlags[dim];
+            } else if(elemInds[dim] == 0 && (boundaryFlags[dim] == 1 || boundaryFlags[dim] == 3)) {
+              elementFlags[dim] += 1;
+            } else if((elemInds[dim] == lCoarseElementsPerDir[dim] - 1)
+                      && (boundaryFlags[dim] == 2 || boundaryFlags[dim] == 3)) {
+              elementFlags[dim] += 2;
+            } else {
+              elementFlags[dim] = 0;
+            }
+
+            // Compute the number of nodes in the current element.
+            if(dim < numDimensions) {
+              if((elemInds[dim] == lCoarseElementsPerDir[dim])
+                 && (gIndices[dim] + lFineNodesPerDir[dim] == gFineNodesPerDir[dim])) {
+                elementNodesPerDir[dim] = endRate[dim] + 1;
+              } else {
+                elementNodesPerDir[dim] = coarseRate[dim] + 1;
+              }
+            } else {
+              elementNodesPerDir[dim] = 1;
+            }
+
+            // Get the lowest tuple of the element using the ghosted local coordinate system
+            glElementRefTuple[dim]   = elemInds[dim]*coarseRate[dim];
+            glElementRefTupleCG[dim] = elemInds[dim];
+          }
+
+          // Now get the column map indices corresponding to the dofs associated with the current
+          // element's coarse nodes.
+          for(typename Array<LO>::size_type elem = 0; elem < glElementCoarseNodeCG.size(); ++elem) {
+            glElementCoarseNodeCG[elem]
+              = glElementRefTupleCG[2]*glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0]
+                 + glElementRefTupleCG[1]*glCoarseNodesPerDir[0] + glElementRefTupleCG[0];
+          }
+          glElementCoarseNodeCG[4] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[5] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[6] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[7] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+
+          glElementCoarseNodeCG[2] += glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[3] += glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[6] += glCoarseNodesPerDir[0];
+          glElementCoarseNodeCG[7] += glCoarseNodesPerDir[0];
+
+          glElementCoarseNodeCG[1] += 1;
+          glElementCoarseNodeCG[3] += 1;
+          glElementCoarseNodeCG[5] += 1;
+          glElementCoarseNodeCG[7] += 1;
+
+          LO numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
+          LO elementOffset = elemInds[2]*coarseRate[2]*glFineNodesPerDir[1]*glFineNodesPerDir[0]
+            + elemInds[1]*coarseRate[1]*glFineNodesPerDir[0] + elemInds[0]*coarseRate[0];
+
+          // Compute the element prolongator
+          Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
+          Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
+          ComputeLocalEntries(Aghosted, coarseRate, endRate, BlkSize, elemInds, lCoarseElementsPerDir,
                               numDimensions, glFineNodesPerDir, gFineNodesPerDir, gIndices,
                               lCoarseNodesPerDir, ghostInterface, elementFlags, stencilType,
                               blockStrategy, elementNodesPerDir, numNodesInElement, colGIDs,
@@ -1357,7 +1707,7 @@ namespace MueLu {
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
-  ComputeLocalEntries(const RCP<const Matrix>& Aghost, const Array<LO> coarseRate,
+  ComputeLocalEntries(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
                       const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
                       const Array<LO> lCoarseElementsPerDir, const LO numDimensions,
                       const Array<LO> lFineNodesPerDir, const Array<GO> gFineNodesPerDir,
@@ -1370,10 +1720,10 @@ namespace MueLu {
                       Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
                       Array<LO>& lDofInd) const {
 
-    // First extract data from Aghost and move it to the corresponding dense matrix
+    // First extract data from Aghosted and move it to the corresponding dense matrix
     // This step requires to compute the number of nodes (resp dofs) in the current
     // coarse element, then allocate storage for local dense matrices, finally loop
-    // over the dofs and extract the corresponding row in Aghost before dispactching
+    // over the dofs and extract the corresponding row in Aghosted before dispactching
     // its data to the dense matrices.
     // At the same time we want to compute a mapping from the element indexing to
     // group indexing. The groups are the following: corner, edge, face and interior
@@ -1524,7 +1874,7 @@ namespace MueLu {
             idof = ((elemInds[2]*coarseRate[2] + ke)*lFineNodesPerDir[1]*lFineNodesPerDir[0]
                     + (elemInds[1]*coarseRate[1] + je)*lFineNodesPerDir[0]
                     + elemInds[0]*coarseRate[0] + ie)*BlkSize + dof0;
-            Aghost->getLocalRowView(idof, rowIndices, rowValues);
+            Aghosted->getLocalRowView(idof, rowIndices, rowValues);
             FormatStencil(BlkSize, ghostInterface, ie, je, ke, rowValues,
                           elementNodesPerDir, collapseFlags, stencilType, stencil);
             LO io, jo, ko;
