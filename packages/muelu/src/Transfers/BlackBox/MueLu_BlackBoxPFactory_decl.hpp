@@ -170,7 +170,8 @@ namespace MueLu {
       LO  LID, lexiInd;
     };
 
-		void BuildPCrs(Level& fineLevel, Level& coarseLevel, CrsGraph connectivityGraph) const;
+		void BuildPCrs(Level& fineLevel, Level& coarseLevel, CrsGraph connectivityGraph,
+                   CrsGraph coarseElemGraph) const;
 
     void GetGeometricData(RCP<Xpetra::MultiVector<double,LO,GO,NO> >& coordinates,
                           const Array<LO> coarseRate, const Array<GO> gFineNodesPerDir,
