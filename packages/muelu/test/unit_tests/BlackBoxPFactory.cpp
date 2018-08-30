@@ -60,6 +60,10 @@
 
 #include "Galeri_XpetraProblemFactory.hpp"
 
+#include "MueLu_AmalgamationFactory.hpp"
+#include "MueLu_CoalesceDropFactory.hpp"
+#include "MueLu_Aggregates.hpp"
+#include "MueLu_StructuredAggregationFactory.hpp"
 #include "MueLu_BlackBoxPFactory.hpp"
 #include "MueLu_TrilinosSmoother.hpp"
 #include "MueLu_Utilities.hpp"
@@ -865,24 +869,32 @@ namespace MueLuTests {
 
     out << "version: " << MueLu::Version() << std::endl;
 
-    RCP<const Teuchos::Comm<int> > comm = Teuchos::DefaultComm<int>::getComm();
+    RCP<const Teuchos::Comm<int> > comm = TestHelpers::Parameters::getDefaultComm();
     const int numProcs = comm->getRank();
 
     if(numProcs == 0) {
       // used Xpetra lib (for maps and smoothers)
-      Xpetra::UnderlyingLib lib = MueLuTests::TestHelpers::Parameters::getLib();
+      Xpetra::UnderlyingLib lib = TestHelpers::Parameters::getLib();
 
       Teuchos::ParameterList matrixList;
+      const std::string meshLayout = "Global Lexicographic";
+      const bool coupled = true;
+      const std::string coupling = (coupled ? "coupled" : "uncoupled");
       const int numDimensions = 3;
-      Array<GO> fineNodesPerDir(3);
-      fineNodesPerDir[0] = 5;
-      fineNodesPerDir[1] = 3;
-      fineNodesPerDir[2] = 3;
-      const GO numRows = fineNodesPerDir[2]*fineNodesPerDir[1]*fineNodesPerDir[0];
-      matrixList.set("nx", fineNodesPerDir[0]);
-      matrixList.set("ny", fineNodesPerDir[1]);
-      matrixList.set("nz", fineNodesPerDir[2]);
+      Array<GO> meshData;
+      Array<GO> gFineNodesPerDir(3);
+      gFineNodesPerDir[0] = 5;
+      gFineNodesPerDir[1] = 3;
+      gFineNodesPerDir[2] = 3;
+      const GO numRows = gFineNodesPerDir[2]*gFineNodesPerDir[1]*gFineNodesPerDir[0];
+      matrixList.set("nx", gFineNodesPerDir[0]);
+      matrixList.set("ny", gFineNodesPerDir[1]);
+      matrixList.set("nz", gFineNodesPerDir[2]);
       matrixList.set("matrixType","Laplace3D");
+      Array<LO> lFineNodesPerDir(3);
+      lFineNodesPerDir[0] = 5;
+      lFineNodesPerDir[1] = 3;
+      lFineNodesPerDir[2] = 3;
 
       Array<LO> coarseningRate(3, 2);
       int numNodesPerCoarseElem = 1;
@@ -892,67 +904,48 @@ namespace MueLuTests {
 
       RCP<Map> rowMap = MapFactory::Build(lib, numRows, numRows, 0, comm);
 
-      RCP<Galeri::Xpetra::Problem<Map,CrsMatrixWrap,MultiVector> > Pr = Galeri::Xpetra::
-        BuildProblem<SC,LO,GO,Map,CrsMatrixWrap,MultiVector>("Laplace3D", rowMap, matrixList);
-      RCP<Matrix> A = Pr->BuildMatrix();
+      RCP<Matrix> A = TestHelpers::TestFactory<SC,LO,GO,NO>::BuildMatrix(matrixList, lib);
 
-      // Since everything is local we can use the constructor with rowMap only
-      // Also in the case of Black Box, the number of nnz per row can be taken
-      // constant and equal to the number of nnz per row corresponding to a fine
-      // points on the mesh. This is an overestimate of nnz since coarse points
-      // are injected and only require 1 nnz per row...
-      int numCoarseElems = 1;
-      Array<LO> colIdx(numNodesPerCoarseElem), elemIdx(3);
-      Array<LO> coarseNodesPerDir(3, 1), coarseElemsPerDir(3, 1);
-      for (int dim = 0; dim < numDimensions; ++dim) {
-        int rem;
-        coarseNodesPerDir[dim] = fineNodesPerDir[dim] / coarseningRate[dim];
-        rem                    = fineNodesPerDir[dim] % coarseningRate[dim];
-        if(rem != 0) {++coarseNodesPerDir[dim];}
-        if(coarseNodesPerDir[dim] == 1) {
-          coarseElemsPerDir[dim] = 1;
-        } else {
-          coarseElemsPerDir[dim] = coarseNodesPerDir[dim] - 1;
-        }
-        numCoarseElems *= coarseElemsPerDir[dim];
-      }
+      RCP<RealValuedMultiVector> Coordinates =
+        TestHelpers::TestFactory<SC,LO,GO,NO>::BuildGeoCoordinates(numDimensions, gFineNodesPerDir,
+                                                                   lFineNodesPerDir, meshData,
+                                                                   meshLayout);
 
-      out << "numNodesPerCoarseElem= " << numNodesPerCoarseElem << std::endl;
-      out << "numCoarseElems= " << numCoarseElems << std::endl;
-      out << "coarseNodesPerDir: " << coarseNodesPerDir << std::endl;
-      out << "coarseElemsPerDir: " << coarseElemsPerDir << std::endl;
+      // This could be changed later to create a two level Hierarchy using fineLevel and coarseLevel
+      Level level;
+      TestHelpers::TestFactory<SC,LO,GO,NO>::createSingleLevelHierarchy(level);
 
-      ArrayRCP<size_t> numNnzPerRow(2, 8);
-      RCP<Map> aggregationMap = MapFactory::Build(lib, numCoarseElems, numCoarseElems, 0, comm);
-      RCP<CrsGraph> aggregationGraph = CrsGraphFactory::Build(aggregationMap, rowMap, numNnzPerRow);
-      for(int elem = 0; elem < numCoarseElems; ++elem) {
-        // Compute the coarse indices of the current point
-        {
-          int rem;
-          elemIdx[2] = elem / (coarseElemsPerDir[1]*coarseElemsPerDir[0]);
-          rem        = elem % (coarseElemsPerDir[1]*coarseElemsPerDir[0]);
-          elemIdx[1] = rem  /  coarseElemsPerDir[0];
-          elemIdx[0] = rem  %  coarseElemsPerDir[0];
-        }
+      RCP<AmalgamationFactory> amalgFact = rcp(new AmalgamationFactory());
+      amalgFact->SetDefaultVerbLevel(MueLu::None);
+      RCP<CoalesceDropFactory> dropFact = rcp(new CoalesceDropFactory());
+      dropFact->SetFactory("UnAmalgamationInfo", amalgFact);
 
-        out << "elem: " << elem << ", elemIdx: " << elemIdx << std::endl;
-        Array<LO> nodeIdx(3);
-        for(int node = 0; node < numNodesPerCoarseElem; ++node) {
-          int rem = 0;
-          nodeIdx[2] = node / ((coarseningRate[1] + 1)*(coarseningRate[0] + 1));
-          rem        = node % ((coarseningRate[1] + 1)*(coarseningRate[0] + 1));
-          nodeIdx[1] = rem / (coarseningRate[0] + 1);
-          nodeIdx[0] = rem % (coarseningRate[0] + 1);
+      level.Set("A", A);
+      level.Set("gNodesPerDim", gFineNodesPerDir);
+      level.Set("lNodesPerDim", lFineNodesPerDir);
+      level.Set("aggregation: mesh data", meshData);
 
-          colIdx[node] =
-            (elemIdx[2]*coarseningRate[2] + nodeIdx[2])*fineNodesPerDir[1]*fineNodesPerDir[0]
-            + (elemIdx[1]*coarseningRate[1] + nodeIdx[1])*fineNodesPerDir[0]
-            + elemIdx[0]*coarseningRate[0] + nodeIdx[0];
-        }
-        out << "colIdx: " << colIdx << std::endl;
-        aggregationGraph->insertLocalIndices(elem, colIdx());
-      }
-      aggregationGraph->fillComplete();
+      // Setup aggregation factory (use default factory for graph)
+      RCP<StructuredAggregationFactory> aggFact = rcp(new StructuredAggregationFactory());
+      aggFact->SetFactory("Graph", dropFact);
+      aggFact->SetParameter("aggregation: coupling", Teuchos::ParameterEntry(coupling));
+      aggFact->SetParameter("aggregation: mesh layout", Teuchos::ParameterEntry(meshLayout));
+      aggFact->SetParameter("aggregation: number of spatial dimensions",
+                            Teuchos::ParameterEntry(numDimensions));
+      aggFact->SetParameter("aggregation: coarsening order", Teuchos::ParameterEntry(0));
+      aggFact->SetParameter("aggregation: coarsening rate",
+                            Teuchos::ParameterEntry(std::string("{3}")));
+      aggFact->SetParameter("aggregation: output type",
+                            Teuchos::ParameterEntry("CrsGraph"));
+
+      level.Request("prolongatorGraph", aggFact.get());
+
+      level.Request(*aggFact);
+      aggFact->Build(level);
+
+      RCP<CrsGraph> prolongatorGraph = level.Get<RCP<CrsGraph> >("prolongatorGraph",aggFact.get());
+      level.Release("Aggregates", aggFact.get());
+
 
     } else {
       out << "BlackBoxPFactory test: BBfromGraph, only runs in serial, this test is skipped!"
