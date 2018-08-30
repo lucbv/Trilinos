@@ -111,11 +111,12 @@ namespace MueLu {
       Array<LO> dimensions_;
       Array<bool> isMeshEdge_;
 
-      // Define constructor
+      // Define empty constructor
       elementEntry() {}
 
-      elementEntry& operator() (ArrayView<const LO> connectivity, ArrayView<const LO> dimensions,
-                                ArrayView<const bool> isMeshEdge) {
+      // Define static constructor for on the fly object creation outside this class
+      elementEntry(ArrayView<const LO> connectivity, ArrayView<const LO> dimensions,
+                   ArrayView<const bool> isMeshEdge) {
         // Check that inputs have correct dimensions
         TEUCHOS_TEST_FOR_EXCEPTION(dimensions.size() != 3, Exceptions::RuntimeError, "dimensions needs to be of size 3.");
         TEUCHOS_TEST_FOR_EXCEPTION(isMeshEdge.size() != 6, Exceptions::RuntimeError, "isMeshEdge needs to be of size 6.");
@@ -123,8 +124,6 @@ namespace MueLu {
         connectivity = connectivity;
         dimensions_ = dimensions;
         isMeshEdge_ = isMeshEdge;
-
-        return *this;
       }
     };
 
