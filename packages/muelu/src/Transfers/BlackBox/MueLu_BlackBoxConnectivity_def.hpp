@@ -50,6 +50,13 @@
 
 namespace MueLu {
 
+  template <class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxConnectivity<LocalOrdinal, GlobalOrdinal, Node>::
+  setElement(const LO elementIdx, ArrayView<const LO> connectivity, ArrayView<const LO> dimensions,
+             ArrayView<const bool> isMeshEdge) {
+    elementsData[elementIdx] = BlackBoxConnectivity::elementEntry(connectivity, dimensions, isMeshEdge);
+  }
+
   ///////////////////////////////////////////////////////
   template <class LocalOrdinal, class GlobalOrdinal, class Node>
   std::string BlackBoxConnectivity<LocalOrdinal, GlobalOrdinal, Node>::description() const {
