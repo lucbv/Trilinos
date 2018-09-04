@@ -50,6 +50,11 @@
 
 #include <Xpetra_MultiVector.hpp>
 #include <Xpetra_Matrix_fwd.hpp>
+#include <Xpetra_CrsMatrixUtils.hpp>
+#include <Xpetra_CrsMatrixWrap.hpp>
+#include <Xpetra_CrsGraphFactory.hpp>
+#include <Xpetra_CrsGraph.hpp>
+
 
 #include "MueLu_ConfigDefs.hpp"
 #include "MueLu_PFactory.hpp"
@@ -170,8 +175,8 @@ namespace MueLu {
       LO  LID, lexiInd;
     };
 
-		void BuildPCrs(Level& fineLevel, Level& coarseLevel, CrsGraph connectivityGraph,
-                   CrsGraph coarseElemGraph) const;
+		void BuildPCrs(Level& fineLevel, Level& coarseLevel, RCP<CrsGraph>& connectivityGraph,
+                   RCP<CrsGraph>& coarseElemGraph) const;
 
     void GetGeometricData(RCP<Xpetra::MultiVector<double,LO,GO,NO> >& coordinates,
                           const Array<LO> coarseRate, const Array<GO> gFineNodesPerDir,
