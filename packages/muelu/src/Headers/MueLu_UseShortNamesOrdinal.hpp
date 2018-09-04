@@ -38,6 +38,9 @@ typedef MueLu::AggregationStructuredAlgorithm<LocalOrdinal,GlobalOrdinal,Node> A
 #ifdef MUELU_AMALGAMATIONINFO_SHORT
 typedef MueLu::AmalgamationInfo<LocalOrdinal,GlobalOrdinal,Node> AmalgamationInfo;
 #endif
+#ifdef MUELU_BLACKBOXCONNECTIVITY_SHORT
+typedef MueLu::BlackBoxConnectivity<LocalOrdinal,GlobalOrdinal,Node> BlackBoxConnectivity;
+#endif
 #ifdef MUELU_COUPLEDAGGREGATIONCOMMHELPER_SHORT
 typedef MueLu::CoupledAggregationCommHelper<LocalOrdinal,GlobalOrdinal,Node> CoupledAggregationCommHelper;
 #endif

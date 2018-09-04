@@ -10,6 +10,7 @@ AggregationPhase3Algorithm
 AggregationPhase3Algorithm_kokkos - #if defined(HAVE_MUELU_KOKKOS_REFACTOR)
 AggregationStructuredAlgorithm
 AmalgamationInfo
+BlackBoxConnectivity
 CoupledAggregationCommHelper
 CoupledAggregationFactory
 GlobalLexicographicIndexManager
