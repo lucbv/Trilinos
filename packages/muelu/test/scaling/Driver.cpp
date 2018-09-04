@@ -232,6 +232,8 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   // =========================================================================
   typedef Teuchos::ScalarTraits<SC> STS;
   SC zero = STS::zero(), one = STS::one();
+  typedef typename STS::magnitudeType real_type;
+  typedef Xpetra::MultiVector<real_type,LO,GO,NO> RealValuedMultiVector;
 
   // =========================================================================
   // Parameters initialization
@@ -269,8 +271,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   bool profileSetup = false;                         clp.setOption("cuda-profile-setup", "no-cuda-profile-setup", &profileSetup, "enable CUDA profiling for setup");
   bool profileSolve = false;                         clp.setOption("cuda-profile-solve", "no-cuda-profile-solve", &profileSolve, "enable CUDA profiling for solve");
 #endif
-
-
+  int  cacheSize = 0;                                clp.setOption("cachesize",               &cacheSize,       "cache size (in KB)");
 
   clp.recogniseAllOptions(true);
   switch (clp.parse(argc, argv)) {
@@ -320,8 +321,10 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
 
 
   comm->barrier();
+  Teuchos::TimeMonitor::setStackedTimer(Teuchos::null);
   RCP<TimeMonitor> globalTimeMonitor = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: S - Global Time")));
   RCP<TimeMonitor> tm                = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 1 - Matrix Build")));
+
 
   RCP<Matrix>      A;
   RCP<const Map>   map;
@@ -493,6 +496,14 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         tm = Teuchos::null;
       }
 
+      std::vector<int> tempVector;
+      int min = 0, max = 10;
+      int numInts = 0;
+      if (cacheSize > 0) {
+        cacheSize *= 1024; //convert to bytes
+        numInts = cacheSize/sizeof(int) + 1;
+        tempVector.resize(numInts);
+      }
 
       for(int solveno = 0; solveno<=numResolves; solveno++) {
         tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 3 - LHS and RHS initialization")));
@@ -510,6 +521,11 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
 #if defined(HAVE_MUELU_EPETRA)
           if(lib==Xpetra::UseEpetra) Aepetra->Apply(*Bepetra,*Xepetra);
 #endif
+          //clear the cache (and don't time it)
+          tm = Teuchos::null;
+          int ttt = rand();
+          for (int i=0; i<numInts; ++i)
+            tempVector[i] += (min + (ttt % static_cast<int>(max - min + 1)));
         } else if (solveType == "standalone") {
           tm = rcp (new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 4 - Fixed Point Solve")));
 #ifdef HAVE_MUELU_CUDA
@@ -602,7 +618,6 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
           throw MueLu::Exceptions::RuntimeError("Unknown solver type: \"" + solveType + "\"");
         }
       }// end resolves
-
 
       comm->barrier();
       tm = Teuchos::null;
