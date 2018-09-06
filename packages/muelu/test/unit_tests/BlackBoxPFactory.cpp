@@ -77,8 +77,12 @@
 
 namespace MueLuTests {
 
+
+
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   class BlackBoxPFactoryTester {
+
+ 
 #include "MueLu_UseShortNames.hpp"
 
   public:
@@ -904,9 +908,10 @@ namespace MueLuTests {
 
       RCP<Map> rowMap = MapFactory::Build(lib, numRows, numRows, 0, comm);
 
+      typedef typename Teuchos::ScalarTraits<Scalar>::magnitudeType real_type;
+      typedef Xpetra::MultiVector<real_type,LO,GO,NO> RealValuedMultiVector;
 
       RCP<Matrix> A = TestHelpers::TestFactory<SC,LO,GO,NO>::BuildMatrix(matrixList, lib);
-
       RCP<RealValuedMultiVector> Coordinates =
         TestHelpers::TestFactory<SC,LO,GO,NO>::BuildGeoCoordinates(numDimensions, gFineNodesPerDir,
                                                                    lFineNodesPerDir, meshData,
