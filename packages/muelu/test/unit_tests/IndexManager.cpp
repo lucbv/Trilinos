@@ -54,6 +54,126 @@
 
 namespace MueLuTests {
 
+  template <class LocalOrdinal, class GlobalOrdinal, class Node>
+  struct IndexManagerTester {
+#include "MueLu_UseShortNamesOrdinal.hpp"
+
+    // We just store all the data that we need to test the IndexManager with.
+    // Hopefully this will simplify the tests a little?
+    // Everything is public data here since we actually just test things...
+    bool isCoupled_;
+    int  interpolationOrder_;
+    int  numDimensions_;
+    GO   gNumFineNodes_, gNumCoarseNodes_;
+    LO   lNumFineNodes_, lNumCoarseNodes_, numGhostedNodes_;
+
+    Array<GO>   gFineNodesPerDir_, gCoarseNodesPerDir_;
+    Array<LO>   lFineNodesPerDir_, lCoarseNodesPerDir_, ghostedNodesPerDir_;
+    Array<int>  coarseRate_;
+    Array<bool> ghostInterface_;
+    Array<GO>   startIndex_;
+    Array<LO>   offsets_, coarseNodeOffsets_;
+
+    Array<LO>   ghostedNodeCoarseLIDs_;
+    Array<int>  ghostedNodeCoarsePIDs_;
+    Array<GO>   ghostedNodeCoarseGIDs_;
+
+    Array<GO>   coarseNodesFineGIDs_, coarseNodesCoarseGIDs_;
+
+    // Both serial and parallel runs have some common data that can be set using the constructor
+    IndexManagerTester() = default;
+    IndexManagerTester(bool isCoupled, int interpolationOrder, int numDimensions,
+                       GO gNumFineNodes, GO gNumCoarseNodes, Array<GO> gFineNodesPerDir,
+                       Array<GO> gCoarseNodesPerDir, Array<int> coarseRate) :
+      isCoupled_(isCoupled), interpolationOrder_(interpolationOrder), numDimensions_(numDimensions),
+      gNumFineNodes_(gNumFineNodes), gCoarseNodesPerDir_(gCoarseNodesPerDir),
+      coarseRate_(coarseRate) { }
+
+    // Creating a bunch of setters, pretty useful for rank dependent data
+    void setNumFineNodes(const int lNumFineNodes) {lNumFineNodes_ = lNumFineNodes;}
+    void setNumCoarseNodes(const int lNumCoarseNodes) {lNumCoarseNodes_ = lNumCoarseNodes;}
+    void setNumGhostedNodes(const int numGhostedNodes) {numGhostedNodes_ = numGhostedNodes;}
+
+    void setLocalFineNodesPerDir(Array<LO> lFineNodesPerDir) {
+      lFineNodesPerDir_.resize(3);
+      for(int dim = 0; dim < 3; ++dim) {
+        lFineNodesPerDir_[dim] = lFineNodesPerDir[dim];
+      }
+    } // setLocalFineNodesPerDir
+
+    void setLocalCoarseNodesPerDir(Array<LO> lCoarseNodesPerDir) {
+      lCoarseNodesPerDir_.resize(3);
+      for(int dim = 0; dim < 3; ++dim) {
+        lCoarseNodesPerDir_[dim] = lCoarseNodesPerDir[dim];
+      }
+    } // setLocalCoarseNodesPerDir
+
+    void setGhostedNodesPerDir(Array<LO> ghostedNodesPerDir) {
+      ghostedNodesPerDir_.resize(3);
+      for(int dim = 0; dim < 3; ++dim) {
+        ghostedNodesPerDir_[dim] = ghostedNodesPerDir[dim];
+      }
+    } // setGhostedNodesPerDir
+
+    void setGhostInterface(Array<bool> ghostInterface) {
+      ghostInterface.resize(6);
+      for(int dim = 0; dim < 3; ++dim) {
+        ghostInterface_[2*dim]     = ghostInterface[2*dim];
+        ghostInterface_[2*dim + 1] = ghostInterface[2*dim + 1];
+      }
+    } // setGhostInterface
+
+    void setStartIndex(Array<GO> startIndex) {
+      startIndex_.resize(6);
+      for(int dim = 0; dim < 3; ++dim) {
+        startIndex_[2*dim]     = startIndex[2*dim];
+        startIndex_[2*dim + 1] = startIndex[2*dim + 1];
+      }
+    } // setStartIndex
+
+    void setOffsets(Array<GO> offsets) {
+      offsets_.resize(3);
+      for(int dim = 0; dim < 3; ++dim) {
+        offsets_[dim] = offsets[dim];
+      }
+    } // setOffsets
+
+    void setCoarseNodeOffsets(Array<GO> coarseNodeOffsets) {
+      coarseNodeOffsets_.resize(3);
+      for(int dim = 0; dim < 3; ++dim) {
+        coarseNodeOffsets_[dim] = coarseNodeOffsets[dim];
+      }
+    } // setCoarseNodeOffsets
+
+    void setGhostedNodeData(Array<LO> ghostedNodeCoarseLIDs, Array<int> ghostedNodeCoarsePIDs,
+                            Array<GO> ghostedNodeCoarseGIDs) {
+      ghostedNodeCoarseLIDs_.resize(numGhostedNodes_);
+      ghostedNodeCoarsePIDs_.resize(numGhostedNodes_);
+      ghostedNodeCoarseGIDs_.resize(numGhostedNodes_);
+      for(LO ghostIdx = 0; ghostIdx < numGhostedNodes_; ++ghostIdx) {
+        ghostedNodeCoarseLIDs_[ghostIdx] = ghostedNodeCoarseLIDs[ghostIdx];
+        ghostedNodeCoarsePIDs_[ghostIdx] = ghostedNodeCoarsePIDs[ghostIdx];
+        ghostedNodeCoarseGIDs_[ghostIdx] = ghostedNodeCoarseGIDs[ghostIdx];
+      }
+    } // setGhostedNodeData
+
+    void setCoarseNodeData(Array<GO> coarseNodesFineGIDs, Array<GO> coarseNodesCoarseGIDs) {
+      coarseNodesFineGIDs_.resize(lNumCoarseNodes_);
+      coarseNodesCoarseGIDs_.resize(lNumCoarseNodes_);
+      for(LO coarseIdx = 0; coarseIdx < lNumCoarseNodes_; ++coarseIdx) {
+        coarseNodesFineGIDs_[coarseIdx]   = coarseNodesFineGIDs[coarseIdx];
+        coarseNodesCoarseGIDs_[coarseIdx] = coarseNodesCoarseGIDs[coarseIdx];
+      }
+    } // setGhostedNodeData
+
+    int doTest(RCP<MueLu::IndexManager<LO,GO,NO> > myIndexManager) {
+      int check = 0;
+
+      return check;
+    }
+
+  }; // IndexManagerTester
+
   TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL(IndexManager, CreateGlobalLexicographicIndexManager, Scalar, LocalOrdinal, GlobalOrdinal, Node)
   {
 #   include "MueLu_UseShortNames.hpp"
@@ -96,7 +216,7 @@ namespace MueLuTests {
                                                                              meshData,
                                                                              "Global Lexicographic");
 
-    RCP<MueLu::GlobalLexicographicIndexManager<LO,GO,NO> > myIndexManager =
+    RCP<MueLu::IndexManager<LO,GO,NO> > myIndexManager =
       rcp(new MueLu::GlobalLexicographicIndexManager<LO,GO,NO>(comm, coupled, numDimensions,
                                                                interpolationOrder, gNodesPerDir,
                                                                lNodesPerDir, coarseRate,
@@ -326,7 +446,7 @@ namespace MueLuTests {
                                                                              meshData,
                                                                              "Local Lexicographic");
 
-    RCP<MueLu::LocalLexicographicIndexManager<LO,GO,NO> > myIndexManager =
+    RCP<MueLu::IndexManager<LO,GO,NO> > myIndexManager =
       rcp(new MueLu::LocalLexicographicIndexManager<LO,GO,NO>(comm, coupled, numDimensions,
                                                               interpolationOrder, comm->getRank(),
                                                               comm->getSize(), gNodesPerDir,
@@ -532,10 +652,10 @@ namespace MueLuTests {
     const bool coupled = false;
     const int numDimensions = 3;
     const int interpolationOrder = 0;
-    Array<GO> meshData;
-    Array<GO> gNodesPerDir(3);
-    Array<LO> lNodesPerDir(3);
-    Array<LO> coarseRate(3);
+    Array<GO>  meshData;
+    Array<GO>  gNodesPerDir(3);
+    Array<LO>  lNodesPerDir(3);
+    Array<int> coarseRate(3);
     for(int dim = 0; dim < 3; ++dim) {
       if(dim < numDimensions) {
         // Use more nodes in 1D to have a reasonable number of nodes per procs
@@ -554,7 +674,7 @@ namespace MueLuTests {
                                                                              meshData,
                                                                              "Local Lexicographic");
 
-    RCP<MueLu::UncoupledIndexManager<LO,GO,NO> > myIndexManager =
+    RCP<MueLu::IndexManager<LO,GO,NO> > myIndexManager =
       rcp(new MueLu::UncoupledIndexManager<LO,GO,NO>(comm, coupled, numDimensions,
                                                      interpolationOrder, comm->getRank(),
                                                      comm->getSize(), gNodesPerDir,
@@ -571,6 +691,51 @@ namespace MueLuTests {
     Array<GO> coarseNodeFineGIDs;
     myIndexManager->getCoarseNodesData(coords->getMap(), coarseNodeCoarseGIDs,
                                        coarseNodeFineGIDs);
+
+    Array<GO> gCoarseNodesPerDir = {{3,3,3}};
+    IndexManagerTester<LO,GO,NO> IMTester(coupled, interpolationOrder, numDimensions, 125, 27,
+                                          gNodesPerDir, {{3,3,3}}, coarseRate);
+
+    if(comm->getSize() == 1) {
+      IMTester.setNumFineNodes(125);
+      IMTester.setNumCoarseNodes(27);
+      IMTester.setNumGhostedNodes(27);
+      IMTester.setLocalFineNodesPerDir({{5,5,5}});
+      IMTester.setLocalCoarseNodesPerDir({{3,3,3}});
+      IMTester.setGhostedNodesPerDir({{3,3,3}});
+      IMTester.setGhostInterface({{false, false, false, false, false, false}});
+      IMTester.setStartIndex({{0, 0, 0, 4, 4, 4}});
+      IMTester.setOffsets({{0, 0, 0}});
+      IMTester.setCoarseNodeOffsets({{0, 0, 0}});
+      Array<LO>  gncLIDs = {{0,1,2,3,4,5,6,7,8,
+                             9,10,11,12,13,14,15,16,17,
+                             18,19,20,21,22,23,24,25,26}};
+      Array<int> gncPIDs(27);
+      Array<GO>  gncGIDs = {{0, 2, 4, 10, 12, 14, 20, 22, 24,
+                             50, 52, 54, 60, 62, 64, 70, 72, 74,
+                             100, 102, 104, 110, 112, 114, 120, 122, 124}};
+      IMTester.setGhostedNodeData(gncLIDs, gncPIDs, gncGIDs);
+
+      Array<GO> cnfGIDs = {{0, 2, 4, 10, 12, 14, 20, 22, 24,
+                            50, 52, 54, 60, 62, 64, 70, 72, 74,
+                            100, 102, 104, 110, 112, 114, 120, 122, 124}};
+      Array<GO> cncGIDs = {{0, 1, 2, 3, 4, 5, 6, 7, 8,
+                            9, 10, 11, 12, 13, 14, 15, 16, 17,
+                            18, 19, 20, 21, 22, 23, 24, 25, 26}};
+      IMTester.setCoarseNodeData(cnfGIDs, cncGIDs);
+    } else if(comm->getSize() == 4) {
+      if(comm->getRank() == 0) {
+
+      } else if(comm->getRank() == 1) {
+
+      } else if(comm->getRank() == 2) {
+
+      } else if(comm->getRank() == 3) {
+
+      }
+    }
+
+    int check = IMTester.doTest(myIndexManager);
 
     int chk = 0;
     if(myIndexManager->isAggregationCoupled()       != coupled)                     {chk = -1;}
