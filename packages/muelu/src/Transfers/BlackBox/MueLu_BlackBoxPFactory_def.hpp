@@ -265,7 +265,7 @@ namespace MueLu {
     // As usual we need to be careful about any coarsening rate
     // change at the boundary!
 
-    RCP<const Map> ghostedRowMap = coarseElemGraph->getColumnMap();
+    RCP<const Map> ghostedRowMap = coarseElemGraph->getColMap();
     RCP<const Map> ghostedColMap = coarseElemGraph->getRowMap();
     RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
                                                                              ghostedRowMap);
@@ -273,7 +273,7 @@ namespace MueLu {
                                                                                 ghostedRowMap,
                                                                                 ghostedRowMap);
 
-    GO gNumCoarseNodes = coarseElemGraph->getColumnMap()->size();
+    GO gNumCoarseNodes = coarseElemGraph->getGlobalNumCols();
     // Create the maps and data structures for the projection matrix
     RCP<const Map> rowMapP    = A->getDomainMap();
 
@@ -290,8 +290,8 @@ namespace MueLu {
     // is the number of remote nodes. The sorting can be limited to remote nodes
     // as the owned ones are alreaded ordered by LID!
 
-    domainMapP = connectivityGraph->rowMap();
-    colMapP = connectivityGraph->colMap();
+    domainMapP = connectivityGraph->getRowMap();
+    colMapP    = connectivityGraph->getColMap();
 
     std::vector<size_t> strideInfo(1);
     strideInfo[0] = BlkSize;
