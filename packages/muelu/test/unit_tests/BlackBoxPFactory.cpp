@@ -947,6 +947,7 @@ namespace MueLuTests {
       level.Set("gNodesPerDim", gFineNodesPerDir);
       level.Set("lNodesPerDim", lFineNodesPerDir);
       level.Set("aggregation: mesh data", meshData);
+      level.Set("BlackBoxConnectivity", BBConnectivity);
 
       // Setup aggregation factory (use default factory for graph)
       RCP<StructuredAggregationFactory> aggFact = rcp(new StructuredAggregationFactory());
