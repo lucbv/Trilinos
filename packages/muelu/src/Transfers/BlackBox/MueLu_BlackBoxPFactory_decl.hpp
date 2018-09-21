@@ -59,6 +59,7 @@
 #include "MueLu_ConfigDefs.hpp"
 #include "MueLu_PFactory.hpp"
 #include "MueLu_BlackBoxPFactory_fwd.hpp"
+#include "MueLu_BlackBoxConnectivity_fwd.hpp"
 
 #include "MueLu_Level_fwd.hpp"
 
@@ -151,6 +152,8 @@ namespace MueLu {
 
     void Build (Level& fineLevel, Level& coarseLevel) const;
     void BuildP(Level& fineLevel, Level& coarseLevel) const;
+    void BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& connectivityGraph,
+                   RCP<BlackBoxConnectivity>& coarseElemGraph) const;
 
     //@}
 
@@ -174,9 +177,6 @@ namespace MueLu {
       int PID;
       LO  LID, lexiInd;
     };
-
-		void BuildPCrs(Level& fineLevel, Level& coarseLevel, RCP<CrsGraph>& connectivityGraph,
-                   RCP<CrsGraph>& coarseElemGraph) const;
 
     void GetGeometricData(RCP<Xpetra::MultiVector<double,LO,GO,NO> >& coordinates,
                           const Array<LO> coarseRate, const Array<GO> gFineNodesPerDir,

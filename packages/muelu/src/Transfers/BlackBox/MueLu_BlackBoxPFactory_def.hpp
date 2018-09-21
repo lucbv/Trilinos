@@ -144,104 +144,12 @@ namespace MueLu {
   }
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildPCrs(Level& fineLevel,
-                                                                             Level& coarseLevel,
-                                                                             RCP<CrsGraph>& connectivityGraph,
-                                                                             RCP<CrsGraph>& coarseElemGraph) const{
-
-    FactoryMonitor m(*this, "Build", coarseLevel);
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
+  BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& prolongatorGraph,
+            RCP<BlackBoxConnectivity>& BBConnectivity) const{
 
     // Get parameter list
     const ParameterList& pL = GetParameterList();
-
-    // obtain general variables
-    RCP<Matrix>      A             = Get< RCP<Matrix> >      (fineLevel, "A");
-    RCP<MultiVector> fineNullspace = Get< RCP<MultiVector> > (fineLevel, "Nullspace");
-    RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
-      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(fineLevel, "Coordinates");
-    RCP<CrsGraph> prolongatorGraph = Get<RCP<CrsGraph> >(fineLevel, "prolongatorGraph");
-    RCP<BlackBoxConnectivity> BBConnectivity = Get<RCP<BlackBoxConnectivity> >(fineLevel, "BlackBoxConnectivity");
-    LO numDimensions  = coordinates->getNumVectors();
-    LO BlkSize = A->GetFixedBlockSize();
-    // Get fine level geometric data: g(l)FineNodesPerDir and g(l)NumFineNodes
-    Array<GO> gFineNodesPerDir(3);
-    Array<LO> lFineNodesPerDir(3);
-    // Get the number of points in each direction
-    if(fineLevel.GetLevelID() == 0) {
-      gFineNodesPerDir = fineLevel.Get<Array<GO> >("gNodesPerDim", NoFactory::get());
-      lFineNodesPerDir = fineLevel.Get<Array<LO> >("lNodesPerDim", NoFactory::get());
-    } else {
-      // Loading global number of nodes per diretions
-      gFineNodesPerDir = Get<Array<GO> >(fineLevel, "gNodesPerDim");
-
-      // Loading local number of nodes per diretions
-      lFineNodesPerDir = Get<Array<LO> >(fineLevel, "lNodesPerDim");
-    }
-    for(LO i = 0; i < 3; ++i) {
-      if(gFineNodesPerDir[i] == 0) {
-        GetOStream(Runtime0) << "gNodesPerDim in direction " << i << " is set to 1 from 0"
-                             << std::endl;
-        gFineNodesPerDir[i] = 1;
-      }
-      if(lFineNodesPerDir[i] == 0) {
-        GetOStream(Runtime0) << "lNodesPerDim in direction " << i << " is set to 1 from 0"
-                             << std::endl;
-        lFineNodesPerDir[i] = 1;
-      }
-    }
-    GO gNumFineNodes = gFineNodesPerDir[2]*gFineNodesPerDir[1]*gFineNodesPerDir[0];
-    LO lNumFineNodes = lFineNodesPerDir[2]*lFineNodesPerDir[1]*lFineNodesPerDir[0];
-
-    // Get the coarsening rate
-    std::string coarsenRate = pL.get<std::string>("Coarsen");
-    Array<LO> coarseRate(3);
-    {
-      Teuchos::Array<LO> crates;
-      try {
-        crates = Teuchos::fromStringToArray<LO>(coarsenRate);
-      } catch(const Teuchos::InvalidArrayStringRepresentation e) {
-        GetOStream(Errors,-1) << " *** Coarsen must be a string convertible into an array! *** "
-                              << std::endl;
-        throw e;
-      }
-      TEUCHOS_TEST_FOR_EXCEPTION((crates.size() > 1) && (crates.size() < numDimensions),
-                                 Exceptions::RuntimeError,
-                                 "Coarsen must have at least as many components as the number of"
-                                 " spatial dimensions in the problem.");
-      for(LO i = 0; i < 3; ++i) {
-        if(i < numDimensions) {
-          if(crates.size() == 1) {
-            coarseRate[i] = crates[0];
-          } else if(i < crates.size()) {
-            coarseRate[i] = crates[i];
-          } else {
-            GetOStream(Errors,-1) << " *** Coarsen must be at least as long as the number of"
-              " spatial dimensions! *** " << std::endl;
-            throw Exceptions::RuntimeError(" *** Coarsen must be at least as long as the number of"
-                                           " spatial dimensions! *** \n");
-          }
-        } else {
-          coarseRate[i] = 1;
-        }
-      }
-    } // End of scope for crates
-
-    // Get the stencil type used for discretization
-    const std::string stencilType = pL.get<std::string>("stencil type");
-    if(stencilType != "full" && stencilType != "reduced") {
-      GetOStream(Errors,-1) << " *** stencil type must be set to: full or reduced, any other value "
-              "is trated as an error! *** " << std::endl;
-      throw Exceptions::RuntimeError(" *** stencil type is neither full, nor reduced! *** \n");
-    }
-
-    // Get the strategy for PDE systems
-    const std::string blockStrategy = pL.get<std::string>("block strategy");
-    if(blockStrategy != "coupled" && blockStrategy != "uncoupled") {
-      GetOStream(Errors,-1) << " *** block strategy must be set to: coupled or uncoupled, any other "
-              "value is trated as an error! *** " << std::endl;
-      throw Exceptions::RuntimeError(" *** block strategy is neither coupled, nor uncoupled! *** \n");
-    }
-
 
     // Now create a new matrix: Aghosted that contains all the data
     // locally needed to compute the local part of the prolongator.
@@ -272,15 +180,15 @@ namespace MueLu {
     // As usual we need to be careful about any coarsening rate
     // change at the boundary!
 
-    RCP<const Map> ghostedRowMap = coarseElemGraph->getColMap();
-    RCP<const Map> ghostedColMap = coarseElemGraph->getRowMap();
+    RCP<const Map> ghostedRowMap = prolongatorGraph->getColMap();
+    RCP<const Map> ghostedColMap = prolongatorGraph->getRowMap();
     RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
                                                                              ghostedRowMap);
     RCP<const Matrix> Aghosted      = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
                                                                                 ghostedRowMap,
                                                                                 ghostedRowMap);
 
-    GO gNumCoarseNodes = coarseElemGraph->getGlobalNumCols();
+    GO gNumCoarseNodes = prolongatorGraph->getGlobalNumCols();
     // Create the maps and data structures for the projection matrix
     RCP<const Map> rowMapP    = A->getDomainMap();
 
@@ -297,8 +205,10 @@ namespace MueLu {
     // is the number of remote nodes. The sorting can be limited to remote nodes
     // as the owned ones are alreaded ordered by LID!
 
-    domainMapP = connectivityGraph->getRowMap();
-    colMapP    = connectivityGraph->getColMap();
+    domainMapP = prolongatorGraph->getRowMap();
+    colMapP    = prolongatorGraph->getColMap();
+
+    LO BlkSize = A->GetFixedBlockSize();
 
     std::vector<size_t> strideInfo(1);
     strideInfo[0] = BlkSize;

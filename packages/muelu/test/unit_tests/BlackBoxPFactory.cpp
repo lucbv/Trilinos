@@ -947,7 +947,6 @@ namespace MueLuTests {
       level.Set("gNodesPerDim", gFineNodesPerDir);
       level.Set("lNodesPerDim", lFineNodesPerDir);
       level.Set("aggregation: mesh data", meshData);
-      level.Set("BlackBoxConnectivity", BBConnectivity);
 
       // Setup aggregation factory (use default factory for graph)
       RCP<StructuredAggregationFactory> aggFact = rcp(new StructuredAggregationFactory());
@@ -960,7 +959,7 @@ namespace MueLuTests {
       aggFact->SetParameter("aggregation: coarsening rate",
                             Teuchos::ParameterEntry(std::string("{3}")));
       aggFact->SetParameter("aggregation: output type",
-                            Teuchos::ParameterEntry("CrsGraph"));
+                            Teuchos::ParameterEntry(std::string("CrsGraph")));
 
       level.Request("prolongatorGraph", aggFact.get());
 
@@ -968,7 +967,11 @@ namespace MueLuTests {
       aggFact->Build(level);
 
       RCP<CrsGraph> prolongatorGraph = level.Get<RCP<CrsGraph> >("prolongatorGraph",aggFact.get());
-      level.Release("Aggregates", aggFact.get());
+      level.Release("prolongatorGraph", aggFact.get());
+
+      RCP<BlackBoxPFactory> myBBPFact = rcp(new BlackBoxPFactory());
+
+      myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
 
     } else {
       out << "BlackBoxPFactory test: BBfromGraph, only runs in serial, this test is skipped!"
