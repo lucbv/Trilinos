@@ -53,7 +53,7 @@ namespace MueLu {
   template <class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxConnectivity<LocalOrdinal, GlobalOrdinal, Node>::
   setElement(const LO elementIdx, ArrayView<const LO> connectivity, ArrayView<const LO> dimensions,
-             ArrayView<const bool> isMeshEdge) {
+             ArrayView<const LO> isMeshEdge) {
     elementsData[elementIdx] = BlackBoxConnectivity::elementEntry(connectivity, dimensions, isMeshEdge);
   }
 

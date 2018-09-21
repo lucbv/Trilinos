@@ -103,20 +103,20 @@ namespace MueLu {
     void print(Teuchos::FancyOStream &out, const Teuchos::EVerbosityLevel verbLevel = verbLevel_default) const;
 
     void setElement(const LO elementIdx, ArrayView<const LO> connectivity,
-                    ArrayView<const LO> dimensions, ArrayView<const bool> isMeshEdge);
+                    ArrayView<const LO> dimensions, ArrayView<const LO> isMeshEdge);
 
     struct elementEntry {
       // Define data to hold
       Array<LO> connectivity_;
       Array<LO> dimensions_;
-      Array<bool> isMeshEdge_;
+      Array<LO> isMeshEdge_;
 
       // Define empty constructor
       elementEntry() {}
 
-      // Define static constructor for on the fly object creation outside this class
+      // Define constructor for on the fly object creation outside this class
       elementEntry(ArrayView<const LO> connectivity, ArrayView<const LO> dimensions,
-                   ArrayView<const bool> isMeshEdge) {
+                   ArrayView<const LO> isMeshEdge) {
         // Check that inputs have correct dimensions
         TEUCHOS_TEST_FOR_EXCEPTION(dimensions.size() != 3, Exceptions::RuntimeError, "dimensions needs to be of size 3.");
         TEUCHOS_TEST_FOR_EXCEPTION(isMeshEdge.size() != 6, Exceptions::RuntimeError, "isMeshEdge needs to be of size 6.");

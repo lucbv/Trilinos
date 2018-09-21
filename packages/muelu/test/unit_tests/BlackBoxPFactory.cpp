@@ -65,6 +65,7 @@
 #include "MueLu_Aggregates.hpp"
 #include "MueLu_StructuredAggregationFactory.hpp"
 #include "MueLu_BlackBoxPFactory.hpp"
+#include "MueLu_BlackBoxConnectivity.hpp"
 #include "MueLu_TrilinosSmoother.hpp"
 #include "MueLu_Utilities.hpp"
 #include "MueLu_PFactory.hpp"
@@ -885,6 +886,7 @@ namespace MueLuTests {
       const bool coupled = true;
       const std::string coupling = (coupled ? "coupled" : "uncoupled");
       const int numDimensions = 3;
+      const LO  numCoarseElements = 2;
       Array<GO> meshData;
       Array<GO> gFineNodesPerDir(3);
       gFineNodesPerDir[0] = 5;
@@ -925,6 +927,21 @@ namespace MueLuTests {
       amalgFact->SetDefaultVerbLevel(MueLu::None);
       RCP<CoalesceDropFactory> dropFact = rcp(new CoalesceDropFactory());
       dropFact->SetFactory("UnAmalgamationInfo", amalgFact);
+
+      // So far let us create manually the BBConnectivity
+      RCP<BlackBoxConnectivity> BBConnectivity = rcp(new BlackBoxConnectivity(numCoarseElements));
+      Array<LO> elementZeroConn = {{ 0,  1,  2,  5,  6,  7, 10, 11, 12,
+                                    15, 16, 17, 20, 21, 22, 25, 26, 27,
+                                    30, 31, 32, 35, 36, 37, 40, 41, 42}};
+      Array<LO> elementZeroDim  = {{3,3,3}};
+      Array<LO> elementZeroEdge = {{1, 0, 1, 1, 1, 1}};
+      Array<LO> elementOneConn  = {{ 2,  3,  4,  7,  8,  9, 12, 13, 14,
+                                    17, 18, 19, 22, 23, 24, 27, 28, 29,
+                                    32, 33, 34, 37, 38, 39, 42, 43, 44}};
+      Array<LO> elementOneDim   = {{3,3,3}};
+      Array<LO> elementOneEdge  = {{0, 1, 1, 1, 1, 1}};
+      BBConnectivity->setElement(0, elementZeroConn(), elementZeroDim(), elementZeroEdge());
+      BBConnectivity->setElement(1,  elementOneConn(),  elementOneDim(),  elementOneEdge());
 
       level.Set("A", A);
       level.Set("gNodesPerDim", gFineNodesPerDir);
