@@ -148,8 +148,8 @@ namespace MueLu {
   BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& prolongatorGraph,
             RCP<BlackBoxConnectivity>& BBConnectivity) const{
 
-    // Get parameter list
-    const ParameterList& pL = GetParameterList();
+    // // Get parameter list
+    // const ParameterList& pL = GetParameterList();
 
     // Now create a new matrix: Aghosted that contains all the data
     // locally needed to compute the local part of the prolongator.
@@ -180,13 +180,59 @@ namespace MueLu {
     // As usual we need to be careful about any coarsening rate
     // change at the boundary!
 
-    RCP<const Map> ghostedRowMap = prolongatorGraph->getColMap();
-    RCP<const Map> ghostedColMap = prolongatorGraph->getRowMap();
+    std::cout << "Hello 9.1" << std::endl;
+
+    LO BlkSize = A->GetFixedBlockSize();
+
+    // Unamalgamating map from prolongator, this should go away after small refactor of structured
+    // aggregation factory to have it construct the true prolongatorGraph.
+    ArrayView<const GO> initialRowMapGIDs = prolongatorGraph->getRowMap()->getNodeElementList();
+    Array<GO> rowMapGIDs(initialRowMapGIDs.size()*BlkSize);
+    for(LO elementIdx = 0;
+        elementIdx < as<LO>(prolongatorGraph->getRowMap()->getNodeNumElements());
+        ++elementIdx) {
+      for(int dof = 0; dof < BlkSize; ++dof) {
+        rowMapGIDs[elementIdx*BlkSize + dof] = initialRowMapGIDs[elementIdx]*BlkSize + dof;
+      }
+    }
+    RCP<Map> ghostedRowMap = MapFactory::Build(prolongatorGraph->getRowMap()->lib(),
+                                               prolongatorGraph->getGlobalNumRows()*BlkSize,
+                                               rowMapGIDs(),
+                                               prolongatorGraph->getIndexBase(),
+                                               prolongatorGraph->getComm(),
+                                               prolongatorGraph->getColMap()->getNode());
+
+    ArrayView<const GO> initialColMapGIDs = prolongatorGraph->getColMap()->getNodeElementList();
+    Array<GO> colMapGIDs(initialColMapGIDs.size()*BlkSize);
+    for(LO elementIdx = 0;
+        elementIdx < as<LO>(prolongatorGraph->getColMap()->getNodeNumElements());
+        ++elementIdx) {
+      for(int dof = 0; dof < BlkSize; ++dof) {
+        colMapGIDs[elementIdx*BlkSize + dof] = initialColMapGIDs[elementIdx]*BlkSize + dof;
+      }
+    }
+    RCP<Map> ghostedColMap = MapFactory::Build(prolongatorGraph->getColMap()->lib(),
+                                               prolongatorGraph->getGlobalNumCols()*BlkSize,
+                                               colMapGIDs(),
+                                               prolongatorGraph->getIndexBase(),
+                                               prolongatorGraph->getComm(),
+                                               prolongatorGraph->getRowMap()->getNode());
+
+    std::cout << "ghostedRowMap: " << ghostedRowMap->getNodeElementList() << std::endl;
+    std::cout << "ghostedColMap: " << ghostedColMap->getNodeElementList() << std::endl;
+
+    std::cout << "Hello 9.2" << std::endl;
+
     RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
                                                                              ghostedRowMap);
+
+    std::cout << "Hello 9.3" << std::endl;
+
     RCP<const Matrix> Aghosted      = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
                                                                                 ghostedRowMap,
                                                                                 ghostedRowMap);
+
+    std::cout << "Hello 9.4" << std::endl;
 
     GO gNumCoarseNodes = prolongatorGraph->getGlobalNumCols();
     // Create the maps and data structures for the projection matrix
@@ -208,7 +254,7 @@ namespace MueLu {
     domainMapP = prolongatorGraph->getRowMap();
     colMapP    = prolongatorGraph->getColMap();
 
-    LO BlkSize = A->GetFixedBlockSize();
+    std::cout << "Hello 9.5" << std::endl;
 
     std::vector<size_t> strideInfo(1);
     strideInfo[0] = BlkSize;

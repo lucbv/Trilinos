@@ -908,6 +908,8 @@ namespace MueLuTests {
         numNodesPerCoarseElem *= (coarseningRate[dim] + 1);
       }
 
+      std::cout << "Hello 1" << std::endl;
+
       RCP<Map> rowMap = MapFactory::Build(lib, numRows, numRows, 0, comm);
 
       typedef typename Teuchos::ScalarTraits<Scalar>::magnitudeType real_type;
@@ -919,6 +921,8 @@ namespace MueLuTests {
                                                                    lFineNodesPerDir, meshData,
                                                                    meshLayout);
 
+      std::cout << "Hello 2" << std::endl;
+
       // This could be changed later to create a two level Hierarchy using fineLevel and coarseLevel
       Level level;
       TestHelpers::TestFactory<SC,LO,GO,NO>::createSingleLevelHierarchy(level);
@@ -927,6 +931,8 @@ namespace MueLuTests {
       amalgFact->SetDefaultVerbLevel(MueLu::None);
       RCP<CoalesceDropFactory> dropFact = rcp(new CoalesceDropFactory());
       dropFact->SetFactory("UnAmalgamationInfo", amalgFact);
+
+      std::cout << "Hello 3" << std::endl;
 
       // So far let us create manually the BBConnectivity
       RCP<BlackBoxConnectivity> BBConnectivity = rcp(new BlackBoxConnectivity(numCoarseElements));
@@ -943,10 +949,14 @@ namespace MueLuTests {
       BBConnectivity->setElement(0, elementZeroConn(), elementZeroDim(), elementZeroEdge());
       BBConnectivity->setElement(1,  elementOneConn(),  elementOneDim(),  elementOneEdge());
 
+      std::cout << "Hello 4" << std::endl;
+
       level.Set("A", A);
       level.Set("gNodesPerDim", gFineNodesPerDir);
       level.Set("lNodesPerDim", lFineNodesPerDir);
       level.Set("aggregation: mesh data", meshData);
+
+      std::cout << "Hello 5" << std::endl;
 
       // Setup aggregation factory (use default factory for graph)
       RCP<StructuredAggregationFactory> aggFact = rcp(new StructuredAggregationFactory());
@@ -961,17 +971,27 @@ namespace MueLuTests {
       aggFact->SetParameter("aggregation: output type",
                             Teuchos::ParameterEntry(std::string("CrsGraph")));
 
+      std::cout << "Hello 6" << std::endl;
+
       level.Request("prolongatorGraph", aggFact.get());
 
       level.Request(*aggFact);
       aggFact->Build(level);
 
+      std::cout << "Hello 7" << std::endl;
+
       RCP<CrsGraph> prolongatorGraph = level.Get<RCP<CrsGraph> >("prolongatorGraph",aggFact.get());
       level.Release("prolongatorGraph", aggFact.get());
 
+      std::cout << "Hello 8" << std::endl;
+
       RCP<BlackBoxPFactory> myBBPFact = rcp(new BlackBoxPFactory());
 
+      std::cout << "Hello 9" << std::endl;
+
       myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
+
+      std::cout << "Hello 10" << std::endl;
 
     } else {
       out << "BlackBoxPFactory test: BBfromGraph, only runs in serial, this test is skipped!"
