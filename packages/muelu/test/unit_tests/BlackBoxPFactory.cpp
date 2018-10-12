@@ -990,6 +990,17 @@ namespace MueLuTests {
       std::cout << "Hello 9" << std::endl;
 
       myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
+      LO ie, je, ke;
+      LO N = 44; // 5x3x3 nodess in 3D
+      for(LO nodeIndex=0; nodeIndex < N; nodeIndex++)
+      {
+        myBBPFact->GetIJKfromIndex(nodeIndex, lFineNodesPerDir, ie, je, ke);
+        std::cout << "nodeIndex: " << nodeIndex << std::endl;
+        std::cout << "ie: " << ie << std::endl;
+        std::cout << "je: " << je << std::endl;
+        std::cout << "ke: " << ke << std::endl;
+        std::cout << "---------------------" << std::endl;
+      }
 
       std::cout << "Hello 10" << std::endl;
 

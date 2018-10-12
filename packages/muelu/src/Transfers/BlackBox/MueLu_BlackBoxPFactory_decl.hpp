@@ -154,7 +154,8 @@ namespace MueLu {
     void BuildP(Level& fineLevel, Level& coarseLevel) const;
     void BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& connectivityGraph,
                    RCP<BlackBoxConnectivity>& coarseElemGraph) const;
-
+    void GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir, 
+                         LO& ie, LO& je, LO& ke) const;
     //@}
 
   private:

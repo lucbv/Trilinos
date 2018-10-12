@@ -242,15 +242,8 @@ namespace MueLu {
 
     RCP<const Map> colMapP;
 
-    // At this point we need to create the column map which is a delicate operation.
-    // The entries in that map need to be ordered as follows:
-    //         1) first owned entries ordered by LID
-    //         2) second order the remaining entries by PID
-    //         3) entries with the same remote PID are ordered by GID.
-    // One piece of good news: lNumCoarseNodes is the number of ownedNodes and lNumGhostNodes
-    // is the number of remote nodes. The sorting can be limited to remote nodes
-    // as the owned ones are alreaded ordered by LID!
-
+    // DomainMap and colMap of our P should be exactly the ones provided
+    // by the wonderful prolongatorGraph.
     domainMapP = prolongatorGraph->getRowMap();
     colMapP    = prolongatorGraph->getColMap();
 
@@ -1992,6 +1985,19 @@ namespace MueLu {
       }
     } // stencilTpye
   } // FormatStencil()
+
+  template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
+  GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir,  LO& ie, LO& je,
+                  LO& ke) 
+  const {
+    LO Nx = lFineNodesPerDir[0];
+    LO Ny = lFineNodesPerDir[1];
+    LO Nz = lFineNodesPerDir[2];
+    ie = index % Nx;
+    je = ((index - ie)/Nx) % Ny;
+    ke = (index - (Nx*je) - ie) / (Nx*Ny);
+  }
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::GetNodeInfo(
