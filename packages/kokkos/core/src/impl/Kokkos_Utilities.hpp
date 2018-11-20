@@ -409,9 +409,6 @@ struct inclusive_scan_integer_sequence
   static constexpr value_type value  = helper::value ;
 };
 
-template <typename T>
-using identity_t = T;
-
 }} // namespace Kokkos::Impl
 
 
