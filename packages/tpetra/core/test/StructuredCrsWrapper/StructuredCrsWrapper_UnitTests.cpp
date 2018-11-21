@@ -113,9 +113,8 @@ namespace { // (anonymous)
     CrsZero.fillComplete();
     RCP<MAT> RCPzero(&CrsZero,false);
     Teuchos::ParameterList params;
-    RCP<Teuchos::ParameterList> RCPparams = rcp(&params,false);
 
-    SMAT zero(RCPzero,RCPparams);
+    SMAT zero(RCPzero,params);
     //
     MV mvrand(map,numVecs,false), mvres(map,numVecs,false);
     mvrand.randomize();

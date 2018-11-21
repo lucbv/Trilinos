@@ -52,7 +52,7 @@ namespace Tpetra {
 namespace Experimental {
 
   /// \class StructuredCrsWrapper
-  /// \brief A wrapper for a CrsMatrix to treat it aas a structured matrix
+  /// \brief A wrapper for a CrsMatrix to treat it as a structured matrix
   ///   preconditioners).
   ///
   /// \tparam Scalar The type of the entries of the input and output
@@ -114,7 +114,7 @@ namespace Experimental {
 
     /** \name Constructors **/
     //@{
-    StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, const Teuchos::RCP<Teuchos::ParameterList>& params);
+    StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, Teuchos::ParameterList& params);
 
     //@}
 
@@ -182,6 +182,10 @@ namespace Experimental {
 
     //! Input matrix
     Teuchos::RCP<const crs_matrix_type> matrix_;   
+
+    //! Input parameters
+    int stencil_type_;
+    Kokkos::View<LocalOrdinal*[3], typename crs_matrix_type::memory_space> matrix_structure_;
 
   };
 
