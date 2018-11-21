@@ -66,6 +66,14 @@ template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getRangeMap() const {return matrix_->getRangeMap();}
 
+template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getRowMap() const {return matrix_->getRowMap();}
+
+template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getColMap() const {return matrix_->getColMap();}
+
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 Teuchos::RCP<const Teuchos::Comm<int> > 
@@ -268,15 +276,95 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::applyNonTranspose 
 }
 
 
-
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::localApply (const MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node> &X,
                                                                      MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node> &Y,
                                                                      Teuchos::ETransp mode,
                                                                      const Scalar& alpha,
-                                                                     const Scalar& beta) const {
-  throw std::runtime_error("localApply not implemented!");
+                                                                     const Scalar& beta) const {  
+  // NOTE: This code is largely cut and paste from Tpetra::CrsMatrix::localMultiply()
+      using Teuchos::NO_TRANS;
+
+      // Should probably fix this later to allow for scalar type mixing
+      //      typedef Scalar DomainScalar;
+      typedef Scalar RangeScalar;
+
+      // Error out if we get called w/ transpose
+      const char fnName[] = "Tpetra::StructuredCrsWrapper::localApply";
+      TEUCHOS_TEST_FOR_EXCEPTION
+        (mode != NO_TRANS, std::runtime_error,
+         fnName << ": Cannot call localApply() in TRANSPOSE mode.");
+      
+      // Just like Scalar and impl_scalar_type may differ in CrsMatrix,
+      // RangeScalar and its corresponding impl_scalar_type may differ in
+      // MultiVector.
+      typedef typename MultiVector<RangeScalar, LocalOrdinal, GlobalOrdinal,
+        Node>::impl_scalar_type range_impl_scalar_type;
+#ifdef HAVE_TPETRA_DEBUG
+      const char tfecfFuncName[] = "localApply: ";
+#endif // HAVE_TPETRA_DEBUG
+
+      const range_impl_scalar_type theAlpha = static_cast<range_impl_scalar_type> (alpha);
+      const range_impl_scalar_type theBeta = static_cast<range_impl_scalar_type> (beta);
+#if 0
+      const bool conjugate = (mode == Teuchos::CONJ_TRANS);
+      const bool transpose = (mode != Teuchos::NO_TRANS);
+#endif
+      auto X_lcl = X.template getLocalView<device_type> ();
+      auto Y_lcl = Y.template getLocalView<device_type> ();
+
+#ifdef HAVE_TPETRA_DEBUG
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (X.getNumVectors () != Y.getNumVectors (), std::runtime_error,
+         "X.getNumVectors() = " << X.getNumVectors () << " != Y.getNumVectors() = "
+         << Y.getNumVectors () << ".");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (! transpose && X.getLocalLength () != getColMap ()->getNodeNumElements (),
+         std::runtime_error, "NO_TRANS case: X has the wrong number of local rows.  "
+         "X.getLocalLength() = " << X.getLocalLength () << " != getColMap()->"
+         "getNodeNumElements() = " << getColMap ()->getNodeNumElements () << ".");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (! transpose && Y.getLocalLength () != getRowMap ()->getNodeNumElements (),
+         std::runtime_error, "NO_TRANS case: Y has the wrong number of local rows.  "
+         "Y.getLocalLength() = " << Y.getLocalLength () << " != getRowMap()->"
+         "getNodeNumElements() = " << getRowMap ()->getNodeNumElements () << ".");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (transpose && X.getLocalLength () != getRowMap ()->getNodeNumElements (),
+         std::runtime_error, "TRANS or CONJ_TRANS case: X has the wrong number of "
+         "local rows.  X.getLocalLength() = " << X.getLocalLength () << " != "
+         "getRowMap()->getNodeNumElements() = "
+         << getRowMap ()->getNodeNumElements () << ".");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (transpose && Y.getLocalLength () != getColMap ()->getNodeNumElements (),
+         std::runtime_error, "TRANS or CONJ_TRANS case: X has the wrong number of "
+         "local rows.  Y.getLocalLength() = " << Y.getLocalLength () << " != "
+         "getColMap()->getNodeNumElements() = "
+         << getColMap ()->getNodeNumElements () << ".");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (! isFillComplete (), std::runtime_error, "The matrix is not fill "
+         "complete.  You must call fillComplete() (possibly with domain and range "
+         "Map arguments) without an intervening resumeFill() call before you may "
+         "call this method.");
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
+        (! X.isConstantStride () || ! Y.isConstantStride (), std::runtime_error,
+         "X and Y must be constant stride.");
+      // If the two pointers are NULL, then they don't alias one
+      // another, even though they are equal.
+      TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(
+        X_lcl.data () == Y_lcl.data () &&
+        X_lcl.data () != NULL,
+        std::runtime_error, "X and Y may not alias one another.");
+#endif // HAVE_TPETRA_DEBUG
+
+      // Y = alpha*op(M) + beta*Y
+
+      KokkosSparse::spmv (KokkosSparse::NoTranspose,
+                          theAlpha,
+                          matrix_->lclMatrix_,
+                          X.template getLocalView<device_type> (),
+                          theBeta,
+                          Y.template getLocalView<device_type> ());
 }
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>

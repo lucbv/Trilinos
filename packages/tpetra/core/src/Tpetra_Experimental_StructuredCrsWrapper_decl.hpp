@@ -109,6 +109,8 @@ namespace Experimental {
     //! The Export specialization suitable for this CrsMatrix specialization.
     typedef typename crs_matrix_type::export_type export_type;
 
+    //! The Kokkos device type.
+    typedef typename crs_matrix_type::device_type device_type;
 
     /** \name Constructors **/
     //@{
@@ -118,7 +120,14 @@ namespace Experimental {
 
     /** \name Utility Functions **/
     //@{   
+    //! Get the comm object
     virtual Teuchos::RCP<const Teuchos::Comm<int> > getComm() const;
+
+    //! Get the column map
+    virtual Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > getRowMap() const;
+
+    //! Get the column map
+    virtual Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > getColMap() const;
 
     //@}
     /** \name Functions derived from Operator **/
@@ -161,7 +170,6 @@ namespace Experimental {
                 MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>&Y,
                 Scalar alpha = Teuchos::ScalarTraits<Scalar>::one (),
                 Scalar beta = Teuchos::ScalarTraits<Scalar>::zero ()) const;
-
 
 
     void
