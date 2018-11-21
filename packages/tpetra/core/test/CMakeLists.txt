@@ -38,5 +38,7 @@ IF (${PACKAGE_NAME}_ENABLE_Epetra)
 ENDIF()
 
 
-# FIXME: This needs the Tpetra Experimental stuff merged
-ADD_SUBDIRECTORY(StructuredCrsWrapper)
+ASSERT_DEFINED(${PACKAGE_NAME}_ENABLE_Experimental)
+IF (${PACKAGE_NAME}_ENABLE_Experimental)
+  ADD_SUBDIRECTORY(StructuredCrsWrapper)
+ENDIF()
