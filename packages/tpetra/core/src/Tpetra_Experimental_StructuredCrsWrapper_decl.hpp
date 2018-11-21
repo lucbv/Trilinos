@@ -114,7 +114,7 @@ namespace Experimental {
 
     /** \name Constructors **/
     //@{
-    StructuredCrsWrapper(Teuchos::RCP<crs_matrix_type> matrix, const Teuchos::RCP<Teuchos::ParameterList>& params);
+    StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, const Teuchos::RCP<Teuchos::ParameterList>& params);
 
     //@}
 
@@ -181,7 +181,7 @@ namespace Experimental {
 
 
     //! Input matrix
-    Teuchos::RCP<crs_matrix_type> matrix_;   
+    Teuchos::RCP<const crs_matrix_type> matrix_;   
 
   };
 

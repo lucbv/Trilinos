@@ -52,7 +52,7 @@ namespace Tpetra {
 namespace Experimental {
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapper(Teuchos::RCP<crs_matrix_type> matrix, const Teuchos::RCP<Teuchos::ParameterList>& params):matrix_(matrix) {
+StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, const Teuchos::RCP<Teuchos::ParameterList>& params):matrix_(matrix) {
 
 }
 

@@ -36,3 +36,7 @@ ASSERT_DEFINED(${PACKAGE_NAME}_ENABLE_Epetra)
 IF (${PACKAGE_NAME}_ENABLE_Epetra)
   ADD_SUBDIRECTORY(EpetraRowMatrix)
 ENDIF()
+
+
+# FIXME: This needs the Tpetra Experimental stuff merged
+ADD_SUBDIRECTORY(StructuredCrsWrapper)
