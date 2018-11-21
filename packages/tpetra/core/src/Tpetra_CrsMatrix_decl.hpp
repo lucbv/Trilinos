@@ -51,6 +51,7 @@
 /// include this file (Tpetra_CrsMatrix_decl.hpp).
 
 #include "Tpetra_CrsMatrix_fwd.hpp"
+#include "Tpetra_Experimental_StructuredCrsWrapper_fwd.hpp"
 #include "Tpetra_RowMatrix_decl.hpp"
 #include "Tpetra_Exceptions.hpp"
 #include "Tpetra_DistObject.hpp"
@@ -491,6 +492,9 @@ namespace Tpetra {
 
     //! DEPRECATED; use local_matrix_type instead.
     typedef local_matrix_type k_local_matrix_type TPETRA_DEPRECATED;
+
+    template <class T1, class T2, class T3, class T4>
+    friend class ::Tpetra::Experimental::StructuredCrsWrapper;
 
     //@}
     //! @name Constructors and destructor

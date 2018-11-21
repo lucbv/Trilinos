@@ -42,10 +42,10 @@
 #ifndef TPETRA_EXPERIMENTAL_STRUCTUREDCRSWRAPPER_DECL_HPP
 #define TPETRA_EXPERIMENTAL_STRUCTUREDCRSWRAPPER_DECL_HPP
 
-#include <Tpetra_Operator.hpp>
-#include <Tpetra_CrsMatrix_fwd.hpp>
-#include <Tpetra_Import_fwd.hpp>
-#include <Tpetra_Map_fwd.hpp>
+#include "Tpetra_Experimental_StructuredCrsWrapper_fwd.hpp"
+#include "Tpetra_Operator.hpp"
+#include "Tpetra_DistObject.hpp"
+#include "Tpetra_CrsMatrix_fwd.hpp"
 
 namespace Tpetra {
 
@@ -103,21 +103,22 @@ namespace Experimental {
     //! CrsMatrix Type
     typedef Tpetra::CrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> crs_matrix_type;
 
-    //! Map Type
-    typedef typename crs_matrix_type::map_type map_type;
-
-    //! Import Type
+    //! The Import specialization suitable for this CrsMatrix specialization.
     typedef typename crs_matrix_type::import_type import_type;
+
+    //! The Export specialization suitable for this CrsMatrix specialization.
+    typedef typename crs_matrix_type::export_type export_type;
 
 
     /** \name Constructors **/
     //@{
     StructuredCrsWrapper(Teuchos::RCP<crs_matrix_type> matrix, const Teuchos::RCP<Teuchos::ParameterList>& params);
 
-
-
     //@}
 
+    /** \name Utility Functions **/
+    //@{   
+    virtual Teuchos::RCP<const Teuchos::Comm<int> > getComm() const;
 
     //@}
     /** \name Functions derived from Operator **/
@@ -154,13 +155,25 @@ namespace Experimental {
 
 
   private:
-    //! Input matrix
-    Teuchos::RCP<crs_matrix_type> matrix_;
 
-    //! Structured import
-    Teuchos::RCP<import_type> structuredImport_;
-    
-   
+    void
+    applyNonTranspose (const MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>& X,
+                MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>&Y,
+                Scalar alpha = Teuchos::ScalarTraits<Scalar>::one (),
+                Scalar beta = Teuchos::ScalarTraits<Scalar>::zero ()) const;
+
+
+
+    void
+    localApply (const MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>& X,
+                MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>&Y,
+                const Teuchos::ETransp mode = Teuchos::NO_TRANS,
+                const Scalar& alpha = Teuchos::ScalarTraits<Scalar>::one (),
+                const Scalar& beta = Teuchos::ScalarTraits<Scalar>::zero ()) const;
+
+
+    //! Input matrix
+    Teuchos::RCP<crs_matrix_type> matrix_;   
 
   };
 
