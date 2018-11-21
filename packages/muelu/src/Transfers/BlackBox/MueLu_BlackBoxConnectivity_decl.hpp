@@ -127,11 +127,11 @@ namespace MueLu {
       }
     };
 
+    Array<elementEntry> elementsData;
   private:
 
     const LO numLocalElements_;
 
-    Array<elementEntry> elementsData;
 
   };
 

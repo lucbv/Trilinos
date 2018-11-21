@@ -984,12 +984,15 @@ namespace MueLuTests {
       level.Release("prolongatorGraph", aggFact.get());
 
       std::cout << "Hello 8" << std::endl;
-
+      printf("Hello 9\n");
       RCP<BlackBoxPFactory> myBBPFact = rcp(new BlackBoxPFactory());
+      myBBPFact->SetFactory("prolongatorGraph", aggFact);
 
-      std::cout << "Hello 9" << std::endl;
+      //std::cout << "Hello 9" << std::endl;
 
       myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
+      LO BlkSize = 1;
+      myBBPFact->ComputeLocalEntriesUsingConnectivity(BBConnectivity->elementsData, BlkSize, lFineNodesPerDir);
       LO ie, je, ke;
       LO N = 44; // 5x3x3 nodess in 3D
       for(LO nodeIndex=0; nodeIndex < N; nodeIndex++)
@@ -1001,6 +1004,7 @@ namespace MueLuTests {
         std::cout << "ke: " << ke << std::endl;
         std::cout << "---------------------" << std::endl;
       }
+
 
       std::cout << "Hello 10" << std::endl;
 

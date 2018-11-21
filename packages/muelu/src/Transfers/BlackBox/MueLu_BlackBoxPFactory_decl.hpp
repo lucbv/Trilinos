@@ -58,8 +58,8 @@
 
 #include "MueLu_ConfigDefs.hpp"
 #include "MueLu_PFactory.hpp"
+#include "MueLu_BlackBoxConnectivity.hpp"
 #include "MueLu_BlackBoxPFactory_fwd.hpp"
-#include "MueLu_BlackBoxConnectivity_fwd.hpp"
 
 #include "MueLu_Level_fwd.hpp"
 
@@ -156,6 +156,24 @@ namespace MueLu {
                    RCP<BlackBoxConnectivity>& coarseElemGraph) const;
     void GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir, 
                          LO& ie, LO& je, LO& ke) const;
+
+//  void ComputeLocalEntriesUsingConnectivity(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
+//                      const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
+//                      const Array<LO> lCoarseElementsPerDir, const LO numDimensions,
+//                      const Array<LO> lFineNodesPerDir, const Array<GO> gFineNodesPerDir,
+//                      const Array<GO> gIndices, const Array<LO> lCoarseNodesPerDir,
+//                      const Array<bool> ghostInterface, const Array<int> elementFlags,
+//                      const std::string stencilType, const std::string blockStrategy,
+//                      const Array<LO> elementNodesPerDir, const LO numNodesInElement,
+//                      const Array<GO> colGIDs,
+//                      const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
+//                      Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+//                      Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
+//                      Array<LO>& lDofInd) const;
+
+  void ComputeLocalEntriesUsingConnectivity(const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
+                                       const LO BlkSize, const Array<LO> lFineNodesPerDir) const;
+
     //@}
 
   private:

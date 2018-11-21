@@ -148,39 +148,6 @@ namespace MueLu {
   BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& prolongatorGraph,
             RCP<BlackBoxConnectivity>& BBConnectivity) const{
 
-    // // Get parameter list
-    // const ParameterList& pL = GetParameterList();
-
-    // Now create a new matrix: Aghosted that contains all the data
-    // locally needed to compute the local part of the prolongator.
-    // Here assuming that all the coarse nodes o and fine nodes +
-    // are local then all the data associated with the coarse
-    // nodes O and the fine nodes * needs to be imported.
-    //
-    //                  *--*--*--*--*--*--*--*
-    //                  |  |  |  |  |  |  |  |
-    //                  o--+--+--o--+--+--O--*
-    //                  |  |  |  |  |  |  |  |
-    //                  +--+--+--+--+--+--*--*
-    //                  |  |  |  |  |  |  |  |
-    //                  +--+--+--+--+--+--*--*
-    //                  |  |  |  |  |  |  |  |
-    //                  o--+--+--o--+--+--O--*
-    //                  |  |  |  |  |  |  |  |
-    //                  +--+--+--+--+--+--*--*
-    //                  |  |  |  |  |  |  |  |
-    //                  *--*--*--*--*--*--*--*
-    //                  |  |  |  |  |  |  |  |
-    //                  O--*--*--O--*--*--O--*
-    //
-    // Creating that local matrix is easy enough using proper range
-    // and domain maps to import data from A. Note that with this
-    // approach we reorder the local entries using the domain map and
-    // can subsequently compute the prolongator without reordering.
-    // As usual we need to be careful about any coarsening rate
-    // change at the boundary!
-
-    std::cout << "Hello 9.1" << std::endl;
 
     LO BlkSize = A->GetFixedBlockSize();
 
@@ -221,18 +188,12 @@ namespace MueLu {
     std::cout << "ghostedRowMap: " << ghostedRowMap->getNodeElementList() << std::endl;
     std::cout << "ghostedColMap: " << ghostedColMap->getNodeElementList() << std::endl;
 
-    std::cout << "Hello 9.2" << std::endl;
-
     RCP<const Import> ghostImporter = Xpetra::ImportFactory<LO,GO,NO>::Build(A->getRowMap(),
                                                                              ghostedRowMap);
-
-    std::cout << "Hello 9.3" << std::endl;
 
     RCP<const Matrix> Aghosted      = Xpetra::MatrixFactory<SC,LO,GO,NO>::Build(A, *ghostImporter,
                                                                                 ghostedRowMap,
                                                                                 ghostedRowMap);
-
-    std::cout << "Hello 9.4" << std::endl;
 
     GO gNumCoarseNodes = prolongatorGraph->getGlobalNumCols();
     // Create the maps and data structures for the projection matrix
@@ -246,8 +207,6 @@ namespace MueLu {
     // by the wonderful prolongatorGraph.
     domainMapP = prolongatorGraph->getRowMap();
     colMapP    = prolongatorGraph->getColMap();
-
-    std::cout << "Hello 9.5" << std::endl;
 
     std::vector<size_t> strideInfo(1);
     strideInfo[0] = BlkSize;
@@ -1477,6 +1436,48 @@ namespace MueLu {
     } // End of scope for tmpInds, tmpVars and tmp
 
   } // GetGeometricData()
+
+  template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
+  ComputeLocalEntriesUsingConnectivity(const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
+                                       const LO BlkSize, const Array<LO> lFineNodesPerDir)
+  const {
+  //ComputeLocalEntriesUsingConnectivity(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
+  //                    const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
+  //                    const Array<LO> lCoarseElementsPerDir, const LO numDimensions,
+  //                    const Array<LO> lFineNodesPerDir, const Array<GO> gFineNodesPerDir,
+  //                    const Array<GO> gIndices, const Array<LO> lCoarseNodesPerDir,
+  //                    const Array<bool> ghostInterface, const Array<int> elementFlags,
+  //                    const std::string stencilType, const std::string blockStrategy,
+  //                    const Array<LO> elementNodesPerDir, const LO numNodesInElement,
+  //                    const Array<GO> colGIDs,
+  //                    const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
+  //                    Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+  //                    Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
+  //                    Array<LO>& lDofInd) const {
+
+    // First extract data from Aghosted and move it to the corresponding dense matrix.
+    // We can make use of our handy BBConnectivity for this, as well as getIJKfromIndex.
+    // At the same time we want to compute a mapping from the element indexing to
+    // group indexing. The groups are the following: corner, edge, face and interior
+    // nodes. We uses these groups to operate on the dense matrices but need to
+    // store the nodes in their original order after groupd operations are completed.
+    LO countInterior=0, countFace=0, countEdge=0, countCorner =0;
+    // Loop over all coarse elements
+    for (size_t elemIdx = 0; elemIdx < elementsData.size(); ++elemIdx) {
+      typename BlackBoxConnectivity::elementEntry element = elementsData[elemIdx];
+      Array<LO> connectivity = element.connectivity_;
+      LO ke = 0, je = 0, ie = 0;
+      // Loop over nodes in connectivity
+      LO numNodesInElement = connectivity.size();
+      Array<LO> collapseDir(numNodesInElement*BlkSize);
+      for(size_t i = 0; i < connectivity.size(); ++i) {
+        LO nodeIdx = connectivity[i];
+        GetIJKfromIndex(nodeIdx, lFineNodesPerDir, ie, je, ke);
+        std::cout << "ie = " << i << "je = " << je << "ke = " << ke << std::endl;
+      }
+    }
+  } // ComputeLocalEntriesUsingConnectivity()
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
