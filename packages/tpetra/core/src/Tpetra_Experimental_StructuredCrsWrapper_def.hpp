@@ -359,12 +359,23 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::localApply (const 
 
       // Y = alpha*op(M) + beta*Y
 
+#if 0
       KokkosSparse::spmv (KokkosSparse::NoTranspose,
                           theAlpha,
                           matrix_->lclMatrix_,
                           X.template getLocalView<device_type> (),
                           theBeta,
                           Y.template getLocalView<device_type> ());
+#else
+      KokkosSparse::spmv_struct(mode,stencil_type,structure,
+                                theAlpha,
+                                matrix_->lclMatrix_,
+                                X.template getLocalView<device_type> (),
+                                theBeta,
+                                Y.template getLocalView<device_type> (),
+                                RANK_ONE);
+
+#endif
 }
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
