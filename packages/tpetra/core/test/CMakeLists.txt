@@ -38,7 +38,7 @@ IF (${PACKAGE_NAME}_ENABLE_Epetra)
 ENDIF()
 
 
-ASSERT_DEFINED(${PACKAGE_NAME}_ENABLE_Experimental)
-IF (${PACKAGE_NAME}_ENABLE_Experimental)
+ASSERT_DEFINED(Tpetra_ENABLE_Experimental)
+IF (Tpetra_ENABLE_Experimental)
   ADD_SUBDIRECTORY(StructuredCrsWrapper)
 ENDIF()
