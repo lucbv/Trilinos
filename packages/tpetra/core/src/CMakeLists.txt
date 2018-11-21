@@ -334,6 +334,10 @@ IF (${PACKAGE_NAME}_ENABLE_EXPLICIT_INSTANTIATION)
   "Experimental_BlockCrsMatrix_Helpers" "EXPERIMENTAL_BLOCKCRSMATRIX_HELPERS" "${TpetraCore_ETI_SCALARS_NO_ORDS}" "${TpetraCore_ETI_LORDS}" "${TpetraCore_ETI_GORDS}" "${TpetraCore_ETI_NODES}" FALSE)
   LIST(APPEND SOURCES ${BLOCKCRSMATRIX_HELPER_OUTPUT_FILES})
 
+  # Generate ETI .cpp files for Tpetra::Experimental::StructuredCrsWrapper
+  TPETRA_PROCESS_ALL_SLGN_TEMPLATES(STRUCTUREDCRSWRAPPER_OUTPUT_FILES "Tpetra_ETI_SC_LO_GO_NT.tmpl" "Experimental_StructuredCrsWrapper" "EXPERIMENTAL_STRUCTUREDCRSWRAPPER" "${TpetraCore_ETI_SCALARS_NO_ORDS}" "${TpetraCore_ETI_LORDS}" "${TpetraCore_ETI_GORDS}" "${TpetraCore_ETI_NODES}" FALSE)
+  LIST(APPEND SOURCES ${STRUCTUREDCRSWRAPPER_OUTPUT_FILES})
+
   # Generate ETI .cpp files for Tpetra::Details::getDiagCopyWithoutOffsets.
   # Do so for the same set of Scalar types as CrsMatrix (see above),
   # because this function is an implementation detail of CrsMatrix.
