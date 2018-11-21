@@ -92,7 +92,7 @@ namespace { // (anonymous)
   //
 
   ////
-  TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, ZeroMatrix, LO, GO, Scalar, Node )
+  TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 1D, LO, GO, Scalar, Node )
   {
     typedef Tpetra::CrsMatrix<Scalar,LO,GO,Node> MAT;
     typedef Tpetra::Experimental::StructuredCrsWrapper<Scalar,LO,GO,Node> SMAT;
@@ -107,15 +107,32 @@ namespace { // (anonymous)
     int numProc = comm->getSize();
     // create a Map
     const size_t numLocal = 10;
-    const size_t numVecs  = 5;
+    const size_t numVecs  = 1;
     RCP<const Tpetra::Map<LO,GO,Node> > map =
       createContigMapWithNode<LO,GO,Node>(INVALID,numLocal,comm);
-    // create the zero matrix (using an implied 1D structure
-    MAT CrsZero(map,0);
-    CrsZero.fillComplete();
-    RCP<MAT> RCPzero(&CrsZero,false);
+    // create a 1D matrix
+    MAT Crs(map,3);
+    Scalar one = Teuchos::ScalarTraits<Scalar>::one();
+
+    for(size_t i = 0; i < numLocal; i++) {
+      GO row = map->getGlobalElement(i);
+      GO cols[3];
+      Scalar vals[3];
+      int idx=0;
+      if(i==0 && myRank) {cols[idx] = row - 1; vals[idx] = -one; idx++;}
+      cols[idx] = row; vals[idx] = 2*one; idx++;
+      if(i==numLocal-1 && myRank!=numProc-1) {cols[idx] = row + 1; vals[idx] = -one; idx++;}
+
+      Crs.insertGlobalValues(row,idx,vals,cols);
+    }
+
+    Crs.fillComplete();
+    RCP<MAT> RCPcrs(&Crs,false);
+
+    // Wrap the matrix for structured spmv
     Teuchos::ParameterList params;
     params.set("dimension",1);
+    params.set("stencil type","FD");
     Teuchos::Array<LO> ppd(1),boundary_lo(1),boundary_hi(1);
     ppd[0] = numLocal;
     boundary_lo[0] = (numProc == 1 || myRank == 0) ? 0 : 1;
@@ -124,24 +141,28 @@ namespace { // (anonymous)
     params.set("low boundary",boundary_lo);
     params.set("high boundary",boundary_hi);
 
-    SMAT zero(RCPzero,params);
-    //
-    MV mvrand(map,numVecs,false), mvres(map,numVecs,false);
-    mvrand.randomize();
-    mvres.putScalar(1);
-    zero.apply(mvrand,mvres);
-    Array<Mag> norms(numVecs), zeros(numVecs,MT::zero());
-    mvres.norm1(norms());
+    SMAT structured(RCPcrs,params);
+
+    // Compare output for an input matrix of ones
+    MV mvone(map,numVecs,false), mvres1(map,numVecs,false), mvres2(map,numVecs,false);
+    mvone.putScalar(one);
+
+    Crs.apply(mvone,mvres1);
+    structured.apply(mvone,mvres2);
+
+    Array<Mag> norms1(numVecs),norms2(numVecs);
+    mvres1.norm1(norms1());
+    mvres2.norm1(norms2());
     if (ST::isOrdinal) {
-      TEST_COMPARE_ARRAYS(norms,zeros);
+      TEST_COMPARE_ARRAYS(norms1,norms2);
     } else {
-      TEST_COMPARE_FLOATING_ARRAYS(norms,zeros,MT::zero());
+      TEST_COMPARE_FLOATING_ARRAYS(norms1,norms2,MT::zero());
     }
   }
 
 
 #define UNIT_TEST_GROUP( SCALAR, LO, GO, NODE ) \
-      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, ZeroMatrix,     LO, GO, SCALAR, NODE ) 
+      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, 1D,     LO, GO, SCALAR, NODE ) 
 
   TPETRA_ETI_MANGLING_TYPEDEFS()
 

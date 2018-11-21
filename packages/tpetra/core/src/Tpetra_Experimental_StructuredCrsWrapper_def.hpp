@@ -98,7 +98,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
 
   // Allocate the matrix_structure view
   // FIXME: Remove superfluous deep copies on architectures where the memory spaces match
-  Kokkos::View<LocalOrdinal*[3], dev_mem_space> mat_structure("Matrix Structure",dim+1,dim);
+  Kokkos::View<LocalOrdinal*[3], dev_mem_space> mat_structure("Matrix Structure",dim);
   typename Kokkos::View<LocalOrdinal*[3], host_mem_space>::HostMirror mat_structure_h = Kokkos::create_mirror_view(mat_structure);
   Kokkos::deep_copy(mat_structure_h, mat_structure);
   for(int i=0; i<dim; i++) {
