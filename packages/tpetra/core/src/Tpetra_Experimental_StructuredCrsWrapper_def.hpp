@@ -54,8 +54,10 @@ namespace Experimental {
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, Teuchos::ParameterList & params):matrix_(matrix) {
 
+  typedef typename Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>::dual_view_type::t_host::device_type host_mem_space;
+
   // Get input parameters
-  std::string discrectization_stencil =  params.get("stencil type","FE");
+  std::string discretization_stencil =  params.get("stencil type","FE");
 
   int dim = params.get("dimension",0);
   Teuchos::Array<LocalOrdinal> points_per_dim;
@@ -64,26 +66,47 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
   boundary_low  = params.get("low boundary",boundary_low);
   boundary_high = params.get("high boundary",boundary_high);
 
+  // Santity check stencil
+  if(discretization_stencil == "FD" || discretization_stencil == "fd" || discretization_stencil == "finite difference")
+    stencil_type_ = 1;
+  else if(discretization_stencil == "FE" || discretization_stencil == "fe" || discretization_stencil == "finite element")
+    stencil_type_ = 2;
+  else
+    throw std::runtime_error("StructuredCrsWrapper: invalid discretization type specified");
+
   // Sanity check: Sizes are all compatible
-  
-  // FINISH
-  if(stencil_type == 1) {
-    discrectization_stencil = "FD";
-  } else if(stencil_type == 2) {
-    discrectization_stencil = "FE";
+  if(dim < 1 || dim > 3)                 throw std::runtime_error("StructuredCrsWrapper: invalid dimension specified");
+  if(dim != (int) points_per_dim.size()) throw std::runtime_error("StructuredCrsWrapper: invalid points per dimension");
+  if(dim != (int) boundary_low.size())   throw std::runtime_error("StructuredCrsWrapper: invalid low boundary size");
+  if(dim != (int) boundary_high.size())  throw std::runtime_error("StructuredCrsWrapper: invalid high boundary size");
+
+  // Sanity check: Boundaries are specified like bools
+  for(int i=0; i<dim; i++) {
+    if(boundary_low[i] != 0 && boundary_low[i] != 1)
+       throw std::runtime_error("StructuredCrsWrapper: invalid low boundary entries ");
+    if(boundary_high[i] != 0 && boundary_high[i] != 1)
+       throw std::runtime_error("StructuredCrsWrapper: invalid high boundary entries ");
   }
 
+  // Sanity check: Does the putative number of points match the row map?
+  size_t num_rows = points_per_dim[0];
+  for(int i=1; i<dim; i++)
+    num_rows *= points_per_dim[i];
+  if(num_rows != matrix->getRowMap()->getNodeNumElements())
+    throw std::runtime_error("StructuredCrsWrapper: implied number of rows from points per dimension does not match actual matrix");
+
+
   // Allocate the matrix_structure view
-  // FIXME: Optimize for 1D, 2D, 3D
-  Kokkos::View<int*[3], typename matrix_type::memory_space> mat_structure("Matrix Structure",dim);
-  typename Kokkos::View<int*[3], typename matrix_type::memory_space>::HostMirror mat_structure_h = Kokkos::create_mirror_view(mat_structure);
+  // FIXME: Remove superfluous deep copies on architectures where the memory spaces match
+  Kokkos::View<LocalOrdinal*[3], dev_mem_space> mat_structure("Matrix Structure",dim+1,dim);
+  typename Kokkos::View<LocalOrdinal*[3], host_mem_space>::HostMirror mat_structure_h = Kokkos::create_mirror_view(mat_structure);
   Kokkos::deep_copy(mat_structure_h, mat_structure);
-  mat_structure_h(0, 0) = nx;
-  mat_structure_h(1, 0) = ny;
-  if(leftBC   == 1) { mat_structure_h(0, 1) = 1; }
-  if(rightBC  == 1) { mat_structure_h(0, 2) = 1; }
-  if(bottomBC == 1) { mat_structure_h(1, 1) = 1; }
-  if(topBC    == 1) { mat_structure_h(1, 2) = 1; }
+  for(int i=0; i<dim; i++) {
+    mat_structure_h(i,0) = points_per_dim[i];
+    mat_structure_h(i,1) = boundary_low[i];
+    mat_structure_h(i,2) = boundary_high[i];
+      
+  }
   Kokkos::deep_copy(mat_structure, mat_structure_h);
 
   matrix_structure_ = mat_structure;

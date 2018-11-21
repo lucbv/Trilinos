@@ -103,16 +103,26 @@ namespace { // (anonymous)
     const GST INVALID = Teuchos::OrdinalTraits<GST>::invalid();
     // get a comm
     RCP<const Comm<int> > comm = getDefaultComm();
+    int myRank  = comm->getRank();
+    int numProc = comm->getSize();
     // create a Map
     const size_t numLocal = 10;
     const size_t numVecs  = 5;
     RCP<const Tpetra::Map<LO,GO,Node> > map =
       createContigMapWithNode<LO,GO,Node>(INVALID,numLocal,comm);
-    // create the zero matrix
+    // create the zero matrix (using an implied 1D structure
     MAT CrsZero(map,0);
     CrsZero.fillComplete();
     RCP<MAT> RCPzero(&CrsZero,false);
     Teuchos::ParameterList params;
+    params.set("dimension",1);
+    Teuchos::Array<LO> ppd(1),boundary_lo(1),boundary_hi(1);
+    ppd[0] = numLocal;
+    boundary_lo[0] = (numProc == 1 || myRank == 0) ? 0 : 1;
+    boundary_hi[0] = (numProc == 1 || myRank != numProc-1) ? 0 : 1;
+    params.set("points per dimension", ppd);
+    params.set("low boundary",boundary_lo);
+    params.set("high boundary",boundary_hi);
 
     SMAT zero(RCPzero,params);
     //

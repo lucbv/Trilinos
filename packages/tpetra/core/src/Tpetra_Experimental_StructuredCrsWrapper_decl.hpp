@@ -112,6 +112,9 @@ namespace Experimental {
     //! The Kokkos device type.
     typedef typename crs_matrix_type::device_type device_type;
 
+    //! Kokkos device memory space
+    typedef typename device_type::memory_space dev_mem_space;
+
     /** \name Constructors **/
     //@{
     StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, Teuchos::ParameterList& params);
@@ -185,7 +188,7 @@ namespace Experimental {
 
     //! Input parameters
     int stencil_type_;
-    Kokkos::View<LocalOrdinal*[3], typename crs_matrix_type::memory_space> matrix_structure_;
+    Kokkos::View<LocalOrdinal*[3], dev_mem_space> matrix_structure_;
 
   };
 
