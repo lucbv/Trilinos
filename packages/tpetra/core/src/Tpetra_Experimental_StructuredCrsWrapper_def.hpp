@@ -55,7 +55,7 @@ template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapper(const Teuchos::RCP<const crs_matrix_type> &matrix, Teuchos::ParameterList & params):matrix_(matrix) {
 
   typedef typename Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>::dual_view_type::t_host::device_type host_mem_space;
-
+  const char tfecfFuncName[] = "StructuredCrsWrapper()";
   // Get input parameters
   std::string discretization_stencil =  params.get("stencil type","FE");
 
@@ -72,28 +72,25 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
   else if(discretization_stencil == "FE" || discretization_stencil == "fe" || discretization_stencil == "finite element")
     stencil_type_ = 2;
   else
-    throw std::runtime_error("StructuredCrsWrapper: invalid discretization type specified");
+    TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(true,std::runtime_error,"invalid discretization type specified");
 
   // Sanity check: Sizes are all compatible
-  if(dim < 1 || dim > 3)                 throw std::runtime_error("StructuredCrsWrapper: invalid dimension specified");
-  if(dim != (int) points_per_dim.size()) throw std::runtime_error("StructuredCrsWrapper: invalid points per dimension");
-  if(dim != (int) boundary_low.size())   throw std::runtime_error("StructuredCrsWrapper: invalid low boundary size");
-  if(dim != (int) boundary_high.size())  throw std::runtime_error("StructuredCrsWrapper: invalid high boundary size");
+  TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(dim < 1 || dim > 3,std::runtime_error,"invalid dimension specified");
+  TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(dim != (int) points_per_dim.size(),std::runtime_error,"invalid points per dimension");
+  TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(dim != (int) boundary_low.size(), std::runtime_error,"invalid low boundary size");
+  TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(dim != (int) boundary_high.size(),std::runtime_error,"invalid high boundary size");
 
   // Sanity check: Boundaries are specified like bools
   for(int i=0; i<dim; i++) {
-    if(boundary_low[i] != 0 && boundary_low[i] != 1)
-       throw std::runtime_error("StructuredCrsWrapper: invalid low boundary entries ");
-    if(boundary_high[i] != 0 && boundary_high[i] != 1)
-       throw std::runtime_error("StructuredCrsWrapper: invalid high boundary entries ");
+    TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(boundary_low[i] != 0 && boundary_low[i] != 1,std::runtime_error,"invalid low boundary entries");
+    TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(boundary_high[i] != 0 && boundary_high[i] != 1,std::runtime_error,"invalid high boundary entries");
   }
 
   // Sanity check: Does the putative number of points match the row map?
   size_t num_rows = points_per_dim[0];
   for(int i=1; i<dim; i++)
     num_rows *= points_per_dim[i];
-  if(num_rows != matrix->getRowMap()->getNodeNumElements())
-    throw std::runtime_error("StructuredCrsWrapper: implied number of rows from points per dimension does not match actual matrix");
+  TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC(num_rows != matrix->getRowMap()->getNodeNumElements(),std::runtime_error,"implied number of rows from points per dimension does not match actual matrix");
 
 
   // Allocate the matrix_structure view
