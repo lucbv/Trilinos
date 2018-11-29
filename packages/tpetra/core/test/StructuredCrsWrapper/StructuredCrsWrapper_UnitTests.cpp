@@ -602,7 +602,7 @@ bool test_2d_serial(Teuchos::ParameterList & params, int numVecs) {
 
   RCP<const Comm<int> > comm = getDefaultComm();
 
-  bool success;
+  bool success = true;
 
   // Get params
   std::string discretization_stencil =  params.get("stencil type","FD");
@@ -622,14 +622,14 @@ bool test_2d_serial(Teuchos::ParameterList & params, int numVecs) {
     mat_structure_h(i,0) = points_per_dim[i];
     mat_structure_h(i,1) = boundary_low[i];
     mat_structure_h(i,2) = boundary_high[i];
-      
+
   }
   Kokkos::deep_copy(mat_structure, mat_structure_h);
 
 
   // Make a local CRS matrix
   local_matrix_type local_mat = Test::generate_structured_matrix2D<local_matrix_type>(discretization_stencil,mat_structure);
-                                                                                      
+
 
   // Wrap local matrix to Tpetra
   size_t numLocal = points_per_dim[0];
@@ -641,22 +641,22 @@ bool test_2d_serial(Teuchos::ParameterList & params, int numVecs) {
   // Now do a structured wrap
   SMAT Tstruct(Tcrs,params);
 
-  // Compare output for an input matrix of ones
+  // Compare output for an input multivector of ones
   MV mvone(map,numVecs,false), mvres1(map,numVecs,false), mvres2(map,numVecs,false);
   mvone.putScalar(one);
-  
+
   Tcrs->apply(mvone,mvres1);
   Tstruct.apply(mvone,mvres2);
 
-  Array<Mag> norms1(numVecs),norms2(numVecs);
+  Array<Mag> norms1(numVecs), norms2(numVecs);
   mvres1.norm1(norms1());
   mvres2.norm1(norms2());
   Scalar diff = 0.0;
   for (int i = 0; i<numVecs; i++)
     diff += std::abs(norms1[i] - norms2[i]);
-  
-  if(success > 10*ST::eps()) success=false;
-  
+
+  if(diff > 10*ST::eps()) success=false;
+
 
   return success;
 }
@@ -677,7 +677,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, 
     ppd[0] = 5; ppd[1] = 10;
     lo[0] = 1; lo[1] = 1;
     hi[0] = 1; hi[1] = 1;
-    
+
     params.set("points per dimension",ppd);
     params.set("low boundary",lo);
     params.set("high boundary",hi);
@@ -688,8 +688,8 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, 
 
 
 #define UNIT_TEST_GROUP( SCALAR, LO, GO, NODE ) \
-      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, 1D_1rhs,     LO, GO, SCALAR, NODE ) \
-      TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, 2D_fd_serial_1rhs,     LO, GO, SCALAR, NODE )
+  TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, 1D_1rhs,     LO, GO, SCALAR, NODE ) \
+  TEUCHOS_UNIT_TEST_TEMPLATE_4_INSTANT( StructuredCrsWrapper, 2D_fd_serial_1rhs,     LO, GO, SCALAR, NODE )
 
 
   TPETRA_ETI_MANGLING_TYPEDEFS()
@@ -697,4 +697,3 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, 
   TPETRA_INSTANTIATE_SLGN_NO_ORDINAL_SCALAR( UNIT_TEST_GROUP )
 
 }
-

@@ -102,7 +102,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
     mat_structure_h(i,0) = points_per_dim[i];
     mat_structure_h(i,1) = boundary_low[i];
     mat_structure_h(i,2) = boundary_high[i];
-      
+
   }
   Kokkos::deep_copy(mat_structure, mat_structure_h);
 
@@ -112,25 +112,25 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
 
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> >
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getDomainMap() const {return matrix_->getDomainMap(); }
-  
+
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> >
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getRangeMap() const {return matrix_->getRangeMap();}
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> >
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getRowMap() const {return matrix_->getRowMap();}
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> > 
+Teuchos::RCP<const Map<LocalOrdinal,GlobalOrdinal,Node> >
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getColMap() const {return matrix_->getColMap();}
 
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-Teuchos::RCP<const Teuchos::Comm<int> > 
+Teuchos::RCP<const Teuchos::Comm<int> >
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getComm() const {return matrix_->getComm();}
 
 
@@ -141,7 +141,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::apply (const Multi
                                                                      Teuchos::ETransp mode,
                                                                      Scalar alpha,
                                                                      Scalar beta) const {
-  using Tpetra::Details::ProfilingRegion;  
+  using Tpetra::Details::ProfilingRegion;
   const char fnName[] = "Tpetra::StructuredCrsWrapper::apply";
    TEUCHOS_TEST_FOR_EXCEPTION
      (! matrix_->isFillComplete (), std::runtime_error,
@@ -157,7 +157,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::apply (const Multi
     ProfilingRegion regionTranspose (fnName);
     matrix_->apply(X,Y,mode,alpha,beta);
   }
-  
+
 }
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -336,7 +336,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::localApply (const 
                                                                      MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node> &Y,
                                                                      Teuchos::ETransp mode,
                                                                      const Scalar& alpha,
-                                                                     const Scalar& beta) const {  
+                                                                     const Scalar& beta) const {
   // NOTE: This code is largely cut and paste from Tpetra::CrsMatrix::localMultiply()
       using Teuchos::NO_TRANS;
 
@@ -349,7 +349,7 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::localApply (const 
       TEUCHOS_TEST_FOR_EXCEPTION
         (mode != NO_TRANS, std::runtime_error,
          fnName << ": Cannot call localApply() in TRANSPOSE mode.");
-      
+
       // Just like Scalar and impl_scalar_type may differ in CrsMatrix,
       // RangeScalar and its corresponding impl_scalar_type may differ in
       // MultiVector.
@@ -411,18 +411,28 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::localApply (const 
         std::runtime_error, "X and Y may not alias one another.");
 #endif // HAVE_TPETRA_DEBUG
 
+      typedef typename MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node>::dual_view_type::t_dev device_view_type;
+      typedef typename device_view_type::memory_space memory_space;
+      typedef typename device_view_type::array_layout local_layout;
+      device_view_type Xview = X.template getLocalView<device_view_type> ();
+      Kokkos::View<scalar_type*, local_layout, memory_space> rankOneX(Xview.data(),
+                                                                      Xview.extent(0));
+      device_view_type Yview = Y.template getLocalView<device_view_type> ();
+      Kokkos::View<scalar_type*, local_layout, memory_space> rankOneY(Yview.data(),
+                                                                      Yview.extent(0));
+
       // Y = alpha*op(M) + beta*Y
       // NOTE: The mode here is "N" since transpose is not yet supported
       KokkosSparse::Experimental::spmv_struct("N",stencil_type_,matrix_structure_,
                                               theAlpha,
                                               matrix_->lclMatrix_,
-                                              X.template getLocalView<device_type> (),
+                                              rankOneX,
                                               theBeta,
-                                              Y.template getLocalView<device_type> ());
+                                              rankOneY);
 }
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-bool 
+bool
 StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::hasTransposeApply() const {return true;}
 
 
