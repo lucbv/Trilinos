@@ -142,18 +142,14 @@ struct SPMV_Struct_Functor {
   typedef typename mat_structure::HostMirror                 mat_structure_h;
 
   // Tags to perform SPMV on interior and boundaries
-  struct interior5ptTag{};
-  struct interior9ptTag{};
-  struct bottomEdge5ptTag{};
-  struct bottomEdge9ptTag{};
-  struct topEdge5ptTag{};
-  struct topEdge9ptTag{};
-  struct leftEdge5ptTag{};
-  struct leftEdge9ptTag{};
-  struct rightEdge5ptTag{};
-  struct rightEdge9ptTag{};
-  struct corner5ptTag{};
-  struct corner9ptTag{};
+  struct interior3ptTag{};    // 1D FD and FE discretization
+  struct interior5ptTag{};    // 2D FD discretization
+  struct interior9ptTag{};    // 2D FE discretization
+  struct interior7ptTag{};    // 3D FD discretization
+  struct interior27ptTag{};   // 3D FE discretization
+  struct exterior1DTag{};
+  struct exterior2DTag{};
+  struct exterior3DTag{};
 
   const mat_structure structure;
   const value_type alpha;
@@ -161,7 +157,7 @@ struct SPMV_Struct_Functor {
   XVector m_x;
   const value_type beta;
   YVector m_y;
-  ordinal_type numInterior;
+  ordinal_type numInterior, numExterior;
 
   const int64_t rows_per_team;
 
@@ -191,117 +187,123 @@ struct SPMV_Struct_Functor {
   void compute(mat_structure_h structure_h, const int stencil_type, const int64_t worksets,
                const int team_size, const int vector_length) {
 
-    numInterior = (structure_h(0,0) - structure_h(0,1) - structure_h(0,2))*
-      (structure_h(1,0) - structure_h(1,1) - structure_h(1,2));
+    int numDimensions = structure_h.extent(0);
 
-    // Treat interior points
-    if(numInterior > 0) {
-      if(stencil_type == 1) {
-        Kokkos::TeamPolicy<interior5ptTag,
+    if(numDimensions == 1) {
+      // Treat interior points using structured algorithm
+      numInterior = structure_h(0,0) - 2;
+      if(numInterior > 0) {
+        Kokkos::TeamPolicy<interior3ptTag,
                            execution_space,
                            Kokkos::Schedule<Kokkos::Static> > policy(1,1);
         if(team_size < 0) {
-          policy = Kokkos::TeamPolicy<interior5ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,Kokkos::AUTO,vector_length);
+          policy = Kokkos::TeamPolicy<interior3ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,Kokkos::AUTO,vector_length);
         } else {
-          policy = Kokkos::TeamPolicy<interior5ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,team_size,vector_length);
-        }
-        Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
-      } else if(stencil_type == 2) {
-        Kokkos::TeamPolicy<interior9ptTag,
-                           execution_space,
-                           Kokkos::Schedule<Kokkos::Dynamic> > policy(1,1);
-        if(team_size < 0) {
-          policy = Kokkos::TeamPolicy<interior9ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,Kokkos::AUTO,vector_length);
-        } else {
-          policy = Kokkos::TeamPolicy<interior9ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,team_size,vector_length);
+          policy = Kokkos::TeamPolicy<interior3ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,team_size,vector_length);
         }
         Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
       }
-    }
 
-    // Treat horizontal edges edges
-    if(structure_h(0,1) + structure_h(0,2) > 0) {
-      ordinal_type numHorizontalEdge = structure_h(0,0);
-      if(structure_h(1,1) == 1) {--numHorizontalEdge;}
-      if(structure_h(1,2) == 1) {--numHorizontalEdge;}
-      if(structure_h(0,1) == 1) {
+      // Treat exterior points using unstructured algorithm
+      numExterior = structure_h(0,0) - numInterior;
+      if(numExterior > 0) {
+        Kokkos::RangePolicy<exterior1DTag,
+                            execution_space,
+                            Kokkos::Schedule<Kokkos::Static> > policy(0, numExterior);
+        Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: exterior", policy, *this);
+      }
+
+    } else if(numDimensions == 2) {
+      // Treat interior points using structured algorithm
+      numInterior = (structure_h(0,0) - 2)*(structure_h(1,0) - 2);
+      if(numInterior > 0) {
         if(stencil_type == 1) {
-          Kokkos::RangePolicy<bottomEdge5ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numHorizontalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: bottom edge", policy, *this);
+          Kokkos::TeamPolicy<interior5ptTag,
+                             execution_space,
+                             Kokkos::Schedule<Kokkos::Static> > policy(1,1);
+          if(team_size < 0) {
+            policy = Kokkos::TeamPolicy<interior5ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,Kokkos::AUTO,vector_length);
+          } else {
+            policy = Kokkos::TeamPolicy<interior5ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,team_size,vector_length);
+          }
+          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
         } else if(stencil_type == 2) {
-          Kokkos::RangePolicy<bottomEdge9ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numHorizontalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: bottom edge", policy, *this);
+          Kokkos::TeamPolicy<interior9ptTag,
+                             execution_space,
+                             Kokkos::Schedule<Kokkos::Dynamic> > policy(1,1);
+          if(team_size < 0) {
+            policy = Kokkos::TeamPolicy<interior9ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,Kokkos::AUTO,vector_length);
+          } else {
+            policy = Kokkos::TeamPolicy<interior9ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,team_size,vector_length);
+          }
+          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
         }
       }
 
-      if(structure_h(0,2) == 1) {
+      // Treat exterior points using unstructured algorithm
+      numExterior = structure_h(0,0)*structure_h(1,0) - numInterior;
+      if(numExterior > 0) {
+        Kokkos::RangePolicy<exterior2DTag,
+                            execution_space,
+                            Kokkos::Schedule<Kokkos::Static> > policy(0, numExterior);
+        Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: exterior", policy, *this);
+      }
+    } else if(numDimensions == 3) {
+      // Treat interior points using structured algorithm
+      numInterior = (structure_h(2,0) - structure_h(2,1) - structure_h(2,2))
+        *(structure_h(1,0) - structure_h(1,1) - structure_h(1,2))
+        *(structure_h(0,0) - structure_h(0,1) - structure_h(0,2));
+      if(numInterior > 0) {
         if(stencil_type == 1) {
-          Kokkos::RangePolicy<topEdge5ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numHorizontalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: top edge", policy, *this);
+          Kokkos::TeamPolicy<interior7ptTag,
+                             execution_space,
+                             Kokkos::Schedule<Kokkos::Static> > policy(1,1);
+          if(team_size < 0) {
+            policy = Kokkos::TeamPolicy<interior7ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,Kokkos::AUTO,vector_length);
+          } else {
+            policy = Kokkos::TeamPolicy<interior7ptTag, execution_space, Kokkos::Schedule<Kokkos::Static> >(worksets,team_size,vector_length);
+          }
+          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
         } else if(stencil_type == 2) {
-          Kokkos::RangePolicy<topEdge9ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numHorizontalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: top edge", policy, *this);
+          Kokkos::TeamPolicy<interior27ptTag,
+                             execution_space,
+                             Kokkos::Schedule<Kokkos::Dynamic> > policy(1,1);
+          if(team_size < 0) {
+            policy = Kokkos::TeamPolicy<interior27ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,Kokkos::AUTO,vector_length);
+          } else {
+            policy = Kokkos::TeamPolicy<interior27ptTag, execution_space, Kokkos::Schedule<Kokkos::Dynamic> >(worksets,team_size,vector_length);
+          }
+          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: interior", policy, *this);
         }
       }
-    }
 
-    // Treat vertical edges
-    if(structure_h(1,1) + structure_h(1,2) > 0) {
-      ordinal_type numVerticalEdge = structure_h(1,0);
-      if(structure_h(0,1) == 1) {--numVerticalEdge;}
-      if(structure_h(0,2) == 1) {--numVerticalEdge;}
-      if(structure_h(1,1) == 1) {
-        if(stencil_type == 1) {
-          Kokkos::RangePolicy<leftEdge5ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numVerticalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: left edge", policy, *this);
-        } else if(stencil_type == 2) {
-          Kokkos::RangePolicy<leftEdge9ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numVerticalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: left edge", policy, *this);
-        }
-      }
-
-      if(structure_h(1,2) == 1) {
-        if(stencil_type == 1) {
-          Kokkos::RangePolicy<rightEdge5ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numVerticalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: right edge", policy, *this);
-        } else if(stencil_type == 2) {
-          Kokkos::RangePolicy<rightEdge9ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, numVerticalEdge);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: right edge", policy, *this);
-        }
+      // Treat exterior points using unstructured algorithm
+      numExterior = structure_h(0,0)*structure_h(1,0)*structure_h(2,0) - numInterior;
+      if(numExterior > 0) {
+        Kokkos::RangePolicy<exterior3DTag,
+                            execution_space,
+                            Kokkos::Schedule<Kokkos::Static> > policy(0, numExterior);
+        Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: exterior", policy, *this);
       }
     }
+  }
 
-    // Treat corner points
-    if(structure_h(0,1)*structure_h(1,1) + structure_h(0,2)*structure_h(1,1)
-       + structure_h(0,1)*structure_h(1,2) + structure_h(0,2)*structure_h(1,2) > 0) {
-        if(stencil_type == 1) {
-          Kokkos::RangePolicy<corner5ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, 1);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: corner", policy, *this);
-        } else if(stencil_type == 2) {
-          Kokkos::RangePolicy<corner9ptTag,
-                              execution_space,
-                              Kokkos::Schedule<Kokkos::Static> > policy(0, 1);
-          Kokkos::parallel_for("KokkosSparse::spmv_struct<NoTranspose,Static>: corner", policy, *this);
-        }
-    }
+  KOKKOS_INLINE_FUNCTION
+  void operator() (const interior3ptTag&, const team_member& dev) const
+  {
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(dev, 0, rows_per_team), [&] (const ordinal_type& loop) {
+        const ordinal_type interiorIdx = static_cast<ordinal_type> ( dev.league_rank() ) * rows_per_team + loop;
+        if(interiorIdx >= numInterior) { return; }
+
+        ordinal_type rowIdx;
+        rowIdx = interiorIdx + 1;
+
+        const size_type rowOffset = m_A.graph.row_map(rowIdx);
+        const value_type* value_ptr = m_A.values.data() + rowOffset;
+        m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(*(value_ptr+0)*m_x(rowIdx - 1)
+                                                + *(value_ptr+1)*m_x(rowIdx)
+                                                + *(value_ptr+2)*m_x(rowIdx + 1));
+      });
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -312,8 +314,8 @@ struct SPMV_Struct_Functor {
         if(interiorIdx >= numInterior) { return; }
 
         ordinal_type i, j, rowIdx;
-        j = interiorIdx / (structure(0,0) - structure(0,1) - structure(0,2)) + structure(1,1);
-        i = interiorIdx % (structure(0,0) - structure(0,1) - structure(0,2)) + structure(0,1);
+        j = interiorIdx / (structure(0,0) - 2) + 1;
+        i = interiorIdx % (structure(0,0) - 2) + 1;
         rowIdx = j*structure(0,0) + i;
 
         const size_type rowOffset = m_A.graph.row_map(rowIdx);
@@ -334,8 +336,8 @@ struct SPMV_Struct_Functor {
         if(interiorIdx >= numInterior) { return; }
 
         ordinal_type i, j, rowIdx;
-        j = interiorIdx / (structure(0,0) - structure(0,1) - structure(0,2)) + structure(1,1);
-        i = interiorIdx % (structure(0,0) - structure(0,1) - structure(0,2)) + structure(0,1);
+        j = interiorIdx / (structure(0,0) - 2) + 1;
+        i = interiorIdx % (structure(0,0) - 2) + 1;
         rowIdx = j*structure(0,0) + i;
 
         const size_type rowOffset = m_A.graph.row_map(rowIdx);
@@ -353,203 +355,178 @@ struct SPMV_Struct_Functor {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator() (const bottomEdge5ptTag&, const ordinal_type edgeIdx) const
+  void operator() (const interior7ptTag&, const team_member& dev) const
   {
-    ordinal_type rowIdx;
-    rowIdx = edgeIdx + structure(0, 1);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(dev, 0, rows_per_team), [&] (const ordinal_type& loop) {
+        const ordinal_type interiorIdx = static_cast<ordinal_type> ( dev.league_rank() ) * rows_per_team + loop;
+        if(interiorIdx >= numInterior) { return; }
 
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - 1)
-                                            + row.value(1)*m_x(rowIdx)
-                                            + row.value(2)*m_x(rowIdx + 1)
-                                            + row.value(3)*m_x(rowIdx + structure(0,0)) );
+        ordinal_type i, j, k, rowIdx, rem;
+        k = interiorIdx / ((structure(0,0) - structure(0,1) - structure(0,2))
+                           *(structure(1,0) - structure(1,1) - structure(1,2)));
+        rem  = interiorIdx % ((structure(0,0) - structure(0,1) - structure(0,2))
+                              *(structure(1,0) - structure(1,1) - structure(1,2)));
+        j = rem / (structure(0,0) - structure(0,1) - structure(0,2));
+        i = rem % (structure(0,0) - structure(0,1) - structure(0,2));
+        rowIdx = (k + structure(2,1))*structure(1,0)*structure(0,0)
+          + (j + structure(1,1))*structure(0,0) + (i + structure(0,1));
+
+        const size_type rowOffset = m_A.graph.row_map(rowIdx);
+        const value_type* value_ptr = &(m_A.values(rowOffset));
+        m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(*(value_ptr+0)*m_x(rowIdx - structure(0,0)*structure(1,0))
+                                                + *(value_ptr+1)*m_x(rowIdx - structure(0,0))
+                                                + *(value_ptr+2)*m_x(rowIdx - 1)
+                                                + *(value_ptr+3)*m_x(rowIdx)
+                                                + *(value_ptr+4)*m_x(rowIdx + 1)
+                                                + *(value_ptr+5)*m_x(rowIdx + structure(0,0))
+                                                + *(value_ptr+6)*m_x(rowIdx + structure(0,0)*structure(1,0)));
+      });
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator() (const bottomEdge9ptTag&, const ordinal_type edgeIdx) const
+  void operator() (const interior27ptTag&, const team_member& dev) const
   {
-    ordinal_type rowIdx;
-    rowIdx = edgeIdx + structure(0, 1);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(dev, 0, rows_per_team), [&] (const ordinal_type& loop) {
+        const ordinal_type interiorIdx = static_cast<ordinal_type> ( dev.league_rank() ) * rows_per_team + loop;
+        if(interiorIdx >= numInterior) { return; }
 
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - 1)
-                                            + row.value(1)*m_x(rowIdx)
-                                            + row.value(2)*m_x(rowIdx + 1)
-                                            + row.value(3)*m_x(rowIdx + structure(0,0) - 1)
-                                            + row.value(4)*m_x(rowIdx + structure(0,0))
-                                            + row.value(5)*m_x(rowIdx + structure(0,0) + 1) );
+        ordinal_type i, j, k, rowIdx, rem;
+        k = interiorIdx / ((structure(0,0) - structure(0,1) - structure(0,2))
+                           *(structure(1,0) - structure(1,1) - structure(1,2)));
+        rem  = interiorIdx % ((structure(0,0) - structure(0,1) - structure(0,2))
+                              *(structure(1,0) - structure(1,1) - structure(1,2)));
+        j = rem / (structure(0,0) - structure(0,1) - structure(0,2));
+        i = rem % (structure(0,0) - structure(0,1) - structure(0,2));
+        rowIdx = (k + structure(2,1))*structure(1,0)*structure(0,0)
+          + (j + structure(1,1))*structure(0,0) + (i + structure(0,1));
+
+        const size_type rowOffset = m_A.graph.row_map(rowIdx);
+        const value_type* value_ptr = &(m_A.values(rowOffset));
+        m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(*(value_ptr+0)*m_x(rowIdx - structure(0,0)*structure(1,0) - structure(0,0) - 1)
+                                                + *(value_ptr+ 1)*m_x(rowIdx - structure(0,0)*structure(1,0) - structure(0,0))
+                                                + *(value_ptr+ 2)*m_x(rowIdx - structure(0,0)*structure(1,0) - structure(0,0) + 1)
+                                                + *(value_ptr+ 3)*m_x(rowIdx - structure(0,0)*structure(1,0) - 1)
+                                                + *(value_ptr+ 4)*m_x(rowIdx - structure(0,0)*structure(1,0))
+                                                + *(value_ptr+ 5)*m_x(rowIdx - structure(0,0)*structure(1,0) + 1)
+                                                + *(value_ptr+ 6)*m_x(rowIdx - structure(0,0)*structure(1,0) + structure(0,0) - 1)
+                                                + *(value_ptr+ 7)*m_x(rowIdx - structure(0,0)*structure(1,0) + structure(0,0))
+                                                + *(value_ptr+ 8)*m_x(rowIdx - structure(0,0)*structure(1,0) + structure(0,0) + 1)
+                                                + *(value_ptr+ 9)*m_x(rowIdx - structure(0,0) - 1)
+                                                + *(value_ptr+10)*m_x(rowIdx - structure(0,0))
+                                                + *(value_ptr+11)*m_x(rowIdx - structure(0,0) + 1)
+                                                + *(value_ptr+12)*m_x(rowIdx - 1)
+                                                + *(value_ptr+13)*m_x(rowIdx)
+                                                + *(value_ptr+14)*m_x(rowIdx + 1)
+                                                + *(value_ptr+15)*m_x(rowIdx + structure(0,0) - 1)
+                                                + *(value_ptr+16)*m_x(rowIdx + structure(0,0))
+                                                + *(value_ptr+17)*m_x(rowIdx + structure(0,0) + 1)
+                                                + *(value_ptr+18)*m_x(rowIdx + structure(0,0)*structure(1,0) - structure(0,0) - 1)
+                                                + *(value_ptr+19)*m_x(rowIdx + structure(0,0)*structure(1,0) - structure(0,0))
+                                                + *(value_ptr+20)*m_x(rowIdx + structure(0,0)*structure(1,0) - structure(0,0) + 1)
+                                                + *(value_ptr+21)*m_x(rowIdx + structure(0,0)*structure(1,0) - 1)
+                                                + *(value_ptr+22)*m_x(rowIdx + structure(0,0)*structure(1,0))
+                                                + *(value_ptr+23)*m_x(rowIdx + structure(0,0)*structure(1,0) + 1)
+                                                + *(value_ptr+24)*m_x(rowIdx + structure(0,0)*structure(1,0) + structure(0,0) - 1)
+                                                + *(value_ptr+25)*m_x(rowIdx + structure(0,0)*structure(1,0) + structure(0,0))
+                                                + *(value_ptr+26)*m_x(rowIdx + structure(0,0)*structure(1,0) + structure(0,0) + 1));
+      });
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator() (const topEdge5ptTag&, const ordinal_type edgeIdx) const
+  void operator() (const exterior1DTag&, const ordinal_type& exteriorIdx) const
   {
-    ordinal_type rowIdx;
-    rowIdx = (structure(1,0) - 1)*structure(0,0) + edgeIdx + structure(0,1);
+    typedef typename YVector::non_const_value_type y_value_type;
+    const ordinal_type topFlag = exteriorIdx / (structure(0,0) + 2*structure(1,0) - 4);
+    const ordinal_type bottomFlag = static_cast<const ordinal_type>((exteriorIdx / structure(0,0)) == 0);
 
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                            + row.value(1)*m_x(rowIdx - 1)
-                                            + row.value(2)*m_x(rowIdx)
-                                            + row.value(3)*m_x(rowIdx + 1) );
+    ordinal_type rowIdx = exteriorIdx*(structure(0,0) - 1);
+
+    const size_type rowOffset = m_A.graph.row_map(rowIdx);
+    const ordinal_type row_length = static_cast<ordinal_type> (m_A.graph.row_map(rowIdx + 1) - rowOffset);
+    const value_type* value_ptr = &(m_A.values(rowOffset));
+    const ordinal_type* column_ptr = &(m_A.graph.entries(rowOffset));
+    y_value_type sum = 0;
+    for(ordinal_type entryIdx = 0; entryIdx < row_length; ++entryIdx) {
+      sum += (*(value_ptr + entryIdx))*m_x(*(column_ptr + entryIdx));
+    }
+    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*sum;
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator() (const topEdge9ptTag&, const ordinal_type edgeIdx) const
+  void operator() (const exterior2DTag&, const ordinal_type& exteriorIdx) const
   {
-    ordinal_type rowIdx;
-    rowIdx = (structure(1,0) - 1)*structure(0,0) + edgeIdx + structure(0,1);
+    typedef typename YVector::non_const_value_type y_value_type;
+    const ordinal_type topFlag = exteriorIdx / (structure(0,0) + 2*structure(1,0) - 4);
+    const ordinal_type bottomFlag = static_cast<const ordinal_type>((exteriorIdx / structure(0,0)) == 0);
 
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0) - 1)
-                                            + row.value(1)*m_x(rowIdx - structure(0,0))
-                                            + row.value(2)*m_x(rowIdx - structure(0,0) + 1)
-                                            + row.value(3)*m_x(rowIdx - 1)
-                                            + row.value(4)*m_x(rowIdx)
-                                            + row.value(5)*m_x(rowIdx + 1) );
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator() (const leftEdge5ptTag&, const ordinal_type edgeIdx) const
-  {
-    ordinal_type rowIdx;
-    rowIdx = (edgeIdx + structure(0,1))*structure(0,0);
-
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                            + row.value(1)*m_x(rowIdx)
-                                            + row.value(2)*m_x(rowIdx + 1)
-                                            + row.value(3)*m_x(rowIdx + structure(0,0)) );
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator() (const leftEdge9ptTag&, const ordinal_type edgeIdx) const
-  {
-    ordinal_type rowIdx;
-    rowIdx = (edgeIdx + structure(0,1))*structure(0,0);
-
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                            + row.value(1)*m_x(rowIdx - structure(0,0) + 1)
-                                            + row.value(2)*m_x(rowIdx)
-                                            + row.value(3)*m_x(rowIdx + 1)
-                                            + row.value(4)*m_x(rowIdx + structure(0,0))
-                                            + row.value(5)*m_x(rowIdx + structure(0,0) + 1) );
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator() (const rightEdge5ptTag&, const ordinal_type edgeIdx) const
-  {
-    ordinal_type rowIdx;
-    rowIdx = (edgeIdx + structure(0,1) + 1)*structure(0,0) - 1;
-
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                            + row.value(1)*m_x(rowIdx - 1)
-                                            + row.value(2)*m_x(rowIdx)
-                                            + row.value(3)*m_x(rowIdx + structure(0,0)) );
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator() (const rightEdge9ptTag&, const ordinal_type edgeIdx) const
-  {
-    ordinal_type rowIdx;
-    rowIdx = (edgeIdx + structure(0,1) + 1)*structure(0,0) - 1;
-
-    const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0) - 1)
-                                            + row.value(1)*m_x(rowIdx - structure(0,0))
-                                            + row.value(2)*m_x(rowIdx - 1)
-                                            + row.value(3)*m_x(rowIdx)
-                                            + row.value(4)*m_x(rowIdx + structure(0,0) - 1)
-                                            + row.value(5)*m_x(rowIdx + structure(0,0)) );
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator() (const corner5ptTag&, const ordinal_type interiorIdx) const
-  {
-    ordinal_type rowIdx;
-
-    // bottom left corner
-    if(structure(0,1)*structure(1,1) == 1) {
-      rowIdx = 0;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx)
-                                              + row.value(1)*m_x(rowIdx + 1)
-                                              + row.value(2)*m_x(rowIdx + structure(0,0)));
+    ordinal_type rowIdx = 0;
+    if(bottomFlag == 1) {
+      rowIdx = exteriorIdx;
+    } else if(topFlag == 1) {
+      rowIdx = exteriorIdx - (structure(0,0) + 2*structure(1,0) - 4)
+        + structure(0,0)*(structure(1,0) - 1);
+    } else {
+      ordinal_type edgeIdx = (exteriorIdx - structure(0,0)) / 2;
+      ordinal_type edgeFlg = (exteriorIdx - structure(0,0)) % 2;
+      rowIdx = (edgeIdx + 1)*structure(0,0) + edgeFlg*(structure(0,0) - 1);
     }
 
-    // bottom right corner
-    if(structure(0,2)*structure(1,1) == 1) {
-      rowIdx = structure(0,0) - 1;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - 1)
-                                              + row.value(1)*m_x(rowIdx)
-                                              + row.value(2)*m_x(rowIdx + structure(0,0)));
+    const size_type rowOffset = m_A.graph.row_map(rowIdx);
+    const ordinal_type row_length = static_cast<ordinal_type> (m_A.graph.row_map(rowIdx + 1) - rowOffset);
+    const value_type* value_ptr = &(m_A.values(rowOffset));
+    const ordinal_type* column_ptr = &(m_A.graph.entries(rowOffset));
+    y_value_type sum = 0;
+    for(ordinal_type entryIdx = 0; entryIdx < row_length; ++entryIdx) {
+      sum += (*(value_ptr + entryIdx))*m_x(*(column_ptr + entryIdx));
     }
-
-    // top left corner
-    if(structure(0,1)*structure(1,2) == 1) {
-      rowIdx = (structure(1,0) - 1)*structure(0,0);
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                              + row.value(1)*m_x(rowIdx)
-                                              + row.value(2)*m_x(rowIdx + 1));
-    }
-
-    // top right corner
-    if(structure(0,2)*structure(1,2) == 1) {
-      rowIdx = structure(1,0)*structure(0,0) - 1;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                              + row.value(1)*m_x(rowIdx - 1)
-                                              + row.value(2)*m_x(rowIdx));
-    }
+    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*sum;
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator() (const corner9ptTag&, const ordinal_type interiorIdx) const
+  void operator() (const exterior3DTag&, const ordinal_type& exteriorIdx) const
   {
-    ordinal_type rowIdx;
+    typedef typename YVector::non_const_value_type y_value_type;
+    const ordinal_type topFlag = static_cast<const ordinal_type>(numExterior - exteriorIdx - 1 < structure(0,0)*structure(1,0));
+    const ordinal_type bottomFlag = static_cast<const ordinal_type>(exteriorIdx / (structure(0,0)*structure(1,0)) == 0);
 
-    // bottom left corner
-    if(structure(0,1)*structure(1,1) == 1) {
-      rowIdx = 0;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx)
-                                              + row.value(1)*m_x(rowIdx + 1)
-                                              + row.value(2)*m_x(rowIdx + structure(0,0))
-                                              + row.value(3)*m_x(rowIdx + structure(0,0) + 1));
+    ordinal_type rowIdx = 0;
+    if(bottomFlag == 1) {
+      rowIdx = exteriorIdx;
+    } else if(topFlag == 1) {
+      rowIdx = exteriorIdx - structure(0,0)*structure(1,0)
+        - 2*(structure(2,0) - 2)*(structure(1,0) - 1 + structure(0,0) - 1)
+        + (structure(2,0) - 1)*structure(0,0)*structure(1,0);
+    } else {
+      ordinal_type i, j, k, rem;
+      k = (exteriorIdx - structure(0,0)*structure(1,0)) / (2*(structure(0,0) - 1 + structure(1,0) - 1));
+      rem = (exteriorIdx - structure(0,0)*structure(1,0)) % (2*(structure(0,0) - 1 + structure(1,0) - 1));
+      ordinal_type frontFlg = static_cast<ordinal_type>(rem < structure(0,0));
+      ordinal_type backFlg = static_cast<ordinal_type>(rem - structure(0,0) - 2*(structure(1,0) - 1) - 1 > 0);
+      if(rem < structure(0,0)) {
+        rowIdx = (k + 1)*structure(0,0)*structure(1,0) + rem;
+      } else if(rem < structure(0,0) + 2*(structure(1,0) - 2)) {
+        ordinal_type edgeIdx = (rem - structure(0,0)) / 2;
+        ordinal_type edgeFlg = (rem - structure(0,0)) % 2;
+        if(edgeFlg == 0) {
+          rowIdx = (k + 1)*structure(0,0)*structure(1,0) + (edgeIdx + 1)*structure(0,0);
+        } else if(edgeFlg == 1) {
+          rowIdx = (k + 1)*structure(0,0)*structure(1,0) + (edgeIdx + 2)*structure(0,0) - 1;
+        }
+      } else {
+        rowIdx = (k + 1)*structure(0,0)*structure(1,0)
+          + rem - structure(0,0) - 2*(structure(1,0) - 2) + (structure(1,0) - 1)*structure(0,0);
+      }
     }
 
-    // bottom right corner
-    if(structure(0,2)*structure(1,1) == 1) {
-      rowIdx = structure(0,0) - 1;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - 1)
-                                              + row.value(1)*m_x(rowIdx)
-                                              + row.value(2)*m_x(rowIdx + structure(0,0) - 1)
-                                              + row.value(3)*m_x(rowIdx + structure(0,0)));
+    const size_type rowOffset = m_A.graph.row_map(rowIdx);
+    const ordinal_type row_length = static_cast<ordinal_type> (m_A.graph.row_map(rowIdx + 1) - rowOffset);
+    const value_type* value_ptr = &(m_A.values(rowOffset));
+    const ordinal_type* column_ptr = &(m_A.graph.entries(rowOffset));
+    y_value_type sum = 0;
+    for(ordinal_type entryIdx = 0; entryIdx < row_length; ++entryIdx) {
+      sum += (*(value_ptr + entryIdx))*m_x(*(column_ptr + entryIdx));
     }
-
-    // top left corner
-    if(structure(0,1)*structure(1,2) == 1) {
-      rowIdx = (structure(1,0) - 1)*structure(0,0);
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0))
-                                              + row.value(1)*m_x(rowIdx - structure(0,0) + 1)
-                                              + row.value(2)*m_x(rowIdx)
-                                              + row.value(3)*m_x(rowIdx + 1));
-    }
-
-    // top right corner
-    if(structure(0,2)*structure(1,2) == 1) {
-      rowIdx = structure(1,0)*structure(0,0) - 1;
-      const KokkosSparse::SparseRowViewConst<AMatrix> row = m_A.rowConst(rowIdx);
-      m_y(rowIdx) = beta*m_y(rowIdx) + alpha*(row.value(0)*m_x(rowIdx - structure(0,0) - 1)
-                                              + row.value(1)*m_x(rowIdx - structure(0,0))
-                                              + row.value(2)*m_x(rowIdx - 1)
-                                              + row.value(3)*m_x(rowIdx));
-    }
+    m_y(rowIdx) = beta*m_y(rowIdx) + alpha*sum;
   }
 };
 
@@ -630,14 +607,30 @@ spmv_struct_beta_no_transpose (const int stencil_type,
 
   int team_size = -1;
   int vector_length = -1;
-  int64_t rows_per_thread = -1;
-  int64_t numInteriorPts = (structure_h(1,0) - structure_h(1,1) - structure_h(1,2))
-    *(structure_h(0,0) - structure_h(0,1) - structure_h(0,2));
   int nnzPerRow = -1;
-  if(stencil_type == 1) {
-    nnzPerRow = 5;
-  } else if(stencil_type == 2) {
-    nnzPerRow = 9;
+  int64_t rows_per_thread = -1;
+  int64_t numInteriorPts = 0;
+
+  if(structure_h.extent(0) == 1) {
+    numInteriorPts = structure_h(0,0) - structure_h(0,1) - structure_h(0,2);
+    nnzPerRow = 3;
+  } else if(structure_h.extent(0) == 2) {
+    numInteriorPts = (structure_h(1,0) - structure_h(1,1) - structure_h(1,2))
+      *(structure_h(0,0) - structure_h(0,1) - structure_h(0,2));
+    if(stencil_type == 1) {
+      nnzPerRow = 5;
+    } else if(stencil_type == 2) {
+      nnzPerRow = 9;
+    }
+  } else if(structure_h.extent(0) == 3) {
+    numInteriorPts = (structure_h(2,0) - structure_h(2,1) - structure_h(2,2))
+      *(structure_h(1,0) - structure_h(1,1) - structure_h(1,2))
+      *(structure_h(0,0) - structure_h(0,1) - structure_h(0,2));
+    if(stencil_type == 1) {
+      nnzPerRow = 7;
+    } else if(stencil_type == 2) {
+      nnzPerRow = 27;
+    }
   }
 
   int64_t rows_per_team = spmv_struct_launch_parameters<execution_space>(numInteriorPts,
@@ -648,8 +641,10 @@ spmv_struct_beta_no_transpose (const int stencil_type,
                                                                          vector_length);
   int64_t worksets = (numInteriorPts + rows_per_team - 1) / rows_per_team;
 
-  // std::cout << "worksets=" << worksets << ", rows_per_team=" << rows_per_team
-  //           << ", team_size=" << team_size << ",  vector_length=" << vector_length << std::endl;
+  // std::cout << "worksets=" << worksets
+  //           << ", rows_per_team=" << rows_per_team
+  //           << ", team_size=" << team_size
+  //           << ",  vector_length=" << vector_length << std::endl;
 
   SPMV_Struct_Functor<mat_structure,AMatrix,XVector,YVector,dobeta,conjugate> func(structure,
                                                                                    alpha,A,x,beta,y,

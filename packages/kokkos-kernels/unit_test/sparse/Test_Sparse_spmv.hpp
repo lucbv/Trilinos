@@ -266,7 +266,45 @@ void test_spmv_mv(lno_t numRows,size_type nnz, lno_t bandwidth, lno_t row_size_v
 }
 
 template <typename scalar_t, typename lno_t, typename size_type, class Device>
-void test_spmv_struct(lno_t nx, lno_t ny, lno_t horizontalBC, lno_t verticalBC){
+void test_spmv_struct_1D(lno_t nx, lno_t leftBC, lno_t rightBC) {
+
+  typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
+  typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
+  typedef scalar_view_t x_vector_type;
+  typedef scalar_view_t y_vector_type;
+
+  Kokkos::View<lno_t*[3], typename Device::memory_space> mat_structure("Matrix Structure", 1);
+  typename Kokkos::View<lno_t*[3], typename Device::memory_space>::HostMirror mat_structure_h
+    = Kokkos::create_mirror_view(mat_structure);
+  Kokkos::deep_copy(mat_structure_h, mat_structure);
+  mat_structure_h(0, 0) = nx;
+  if(leftBC  == 1) { mat_structure_h(0, 1) = 1; }
+  if(rightBC == 1) { mat_structure_h(0, 2) = 1; }
+  Kokkos::deep_copy(mat_structure, mat_structure_h);
+
+  crsMat_t input_mat = Test::generate_structured_matrix1D<crsMat_t>(mat_structure);
+
+  lno_t nr = input_mat.numRows();
+  lno_t nc = input_mat.numCols();
+
+  x_vector_type input_x  ("x", nc);
+  y_vector_type output_y ("y", nr);
+
+  Kokkos::Random_XorShift64_Pool<typename Device::execution_space> rand_pool(13718);
+
+  typedef typename x_vector_type::value_type ScalarX;
+  typedef typename y_vector_type::value_type ScalarY;
+
+  Kokkos::fill_random(input_x,  rand_pool, ScalarX(10));
+  Kokkos::fill_random(output_y, rand_pool, ScalarY(10));
+
+  Test::check_spmv_struct(input_mat, 1, mat_structure, input_x, output_y, 1.0, 0.0);
+  Test::check_spmv_struct(input_mat, 1, mat_structure, input_x, output_y, 0.0, 1.0);
+  Test::check_spmv_struct(input_mat, 1, mat_structure, input_x, output_y, 1.0, 1.0);
+}
+
+template <typename scalar_t, typename lno_t, typename size_type, class Device>
+void test_spmv_struct_2D(lno_t nx, lno_t ny, lno_t horizontalBC, lno_t verticalBC) {
 
   typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
   typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
@@ -302,12 +340,61 @@ void test_spmv_struct(lno_t nx, lno_t ny, lno_t horizontalBC, lno_t verticalBC){
   Kokkos::fill_random(input_x,rand_pool,ScalarX(10));
   Kokkos::fill_random(output_y,rand_pool,ScalarY(10));
 
-  // Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 0.0);
-  // Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 0.0, 1.0);
-  // Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 1.0);
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 0.0);
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 0.0, 1.0);
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 1.0);
 
-  // Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 1.0, 0.0);
-  // Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 0.0, 1.0);
+  Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 1.0, 0.0);
+  Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 0.0, 1.0);
+  Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 1.0, 1.0);
+}
+
+template <typename scalar_t, typename lno_t, typename size_type, class Device>
+void test_spmv_struct_3D(lno_t nx, lno_t ny, lno_t nz, lno_t horizontal1BC, lno_t horizontal2BC, lno_t verticalBC) {
+
+  typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
+  typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
+  typedef scalar_view_t x_vector_type;
+  typedef scalar_view_t y_vector_type;
+
+  Kokkos::View<lno_t*[3], typename Device::memory_space> mat_structure("Matrix Structure", 3);
+  typename Kokkos::View<lno_t*[3], typename Device::memory_space>::HostMirror mat_structure_h
+    = Kokkos::create_mirror_view(mat_structure);
+  Kokkos::deep_copy(mat_structure_h, mat_structure);
+  mat_structure_h(0, 0) = nx;
+  if(horizontal1BC == 1 || horizontal1BC == 3) { mat_structure_h(0, 1) = 1; }
+  if(horizontal1BC == 2 || horizontal1BC == 3) { mat_structure_h(0, 2) = 1; }
+  mat_structure_h(1, 0) = ny;
+  if(horizontal2BC == 1 || horizontal2BC == 3) { mat_structure_h(1, 1) = 1; }
+  if(horizontal2BC == 2 || horizontal2BC == 3) { mat_structure_h(1, 2) = 1; }
+  mat_structure_h(2, 0) = nz;
+  if(verticalBC == 1 || verticalBC == 3) { mat_structure_h(2, 1) = 1; }
+  if(verticalBC == 2 || verticalBC == 3) { mat_structure_h(2, 2) = 1; }
+  Kokkos::deep_copy(mat_structure, mat_structure_h);
+
+  crsMat_t input_mat_FD = Test::generate_structured_matrix3D<crsMat_t>("FD", mat_structure);
+  crsMat_t input_mat_FE = Test::generate_structured_matrix3D<crsMat_t>("FE", mat_structure);
+
+  lno_t nr = input_mat_FD.numRows();
+  lno_t nc = input_mat_FD.numCols();
+
+  x_vector_type input_x  ("x", nc);
+  y_vector_type output_y ("y", nr);
+
+  Kokkos::Random_XorShift64_Pool<typename Device::execution_space> rand_pool(13718);
+
+  typedef typename x_vector_type::value_type ScalarX;
+  typedef typename y_vector_type::value_type ScalarY;
+
+  Kokkos::fill_random(input_x,rand_pool,ScalarX(10));
+  Kokkos::fill_random(output_y,rand_pool,ScalarY(10));
+
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 0.0);
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 0.0, 1.0);
+  Test::check_spmv_struct(input_mat_FD, 1, mat_structure, input_x, output_y, 1.0, 1.0);
+
+  Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 1.0, 0.0);
+  Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 0.0, 1.0);
   Test::check_spmv_struct(input_mat_FE, 2, mat_structure, input_x, output_y, 1.0, 1.0);
 }
 
@@ -476,9 +563,14 @@ TEST_F( TestCategory,sparse ## _ ## spmv_mv ## _ ## SCALAR ## _ ## ORDINAL ## _ 
 
 #define EXECUTE_TEST_STRUCT(SCALAR, ORDINAL, OFFSET, DEVICE) \
 TEST_F( TestCategory,sparse ## _ ## spmv_struct ## _ ## SCALAR ## _ ## ORDINAL ## _ ## OFFSET ## _ ## DEVICE ) { \
-  test_spmv_struct<SCALAR,ORDINAL,OFFSET,DEVICE> (250, 200, 3, 3); \
-  test_spmv_struct<SCALAR,ORDINAL,OFFSET,DEVICE> (200, 250, 3, 3); \
-  test_spmv_struct<SCALAR,ORDINAL,OFFSET,DEVICE> (250, 250, 3, 3); \
+  test_spmv_struct_1D<SCALAR,ORDINAL,OFFSET,DEVICE> (10, 1, 1); \
+  test_spmv_struct_2D<SCALAR,ORDINAL,OFFSET,DEVICE> (250, 200, 3, 3); \
+  test_spmv_struct_2D<SCALAR,ORDINAL,OFFSET,DEVICE> (200, 250, 3, 3); \
+  test_spmv_struct_2D<SCALAR,ORDINAL,OFFSET,DEVICE> (250, 250, 3, 3); \
+  test_spmv_struct_3D<SCALAR,ORDINAL,OFFSET,DEVICE> (40, 40, 40, 3, 3, 3); \
+  test_spmv_struct_3D<SCALAR,ORDINAL,OFFSET,DEVICE> (25, 40, 50, 3, 3, 3); \
+  test_spmv_struct_3D<SCALAR,ORDINAL,OFFSET,DEVICE> (40, 50, 25, 3, 3, 3); \
+  test_spmv_struct_3D<SCALAR,ORDINAL,OFFSET,DEVICE> (50, 24, 40, 3, 3, 3); \
 }
 
 #if (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))

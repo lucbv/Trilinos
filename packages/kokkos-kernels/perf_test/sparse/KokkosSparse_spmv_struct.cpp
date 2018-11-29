@@ -66,8 +66,11 @@ typedef int LocalOrdinalType;
 
 template<typename Scalar>
 int test_crs_matrix_singlevec(const bool banner, const int algo,
-                              const int nx, const int ny, const int leftBC, const int rightBC,
-                              const int bottomBC, const int topBC, const int stencil_type,
+                              const int numDimensions, const int stencil_type,
+                              const int nx, const int ny, const int nz,
+                              const int leftBC, const int rightBC,
+                              const int frontBC, const int backBC,
+                              const int bottomBC, const int topBC,
                               const int rows_per_thread, const int team_size,
                               const int vector_length, const int schedule, const int loop) {
   typedef KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int> matrix_type ;
@@ -75,16 +78,30 @@ int test_crs_matrix_singlevec(const bool banner, const int algo,
   typedef typename Kokkos::View<Scalar*,Kokkos::LayoutLeft,Kokkos::MemoryRandomAccess > mv_random_read_type;
   typedef typename mv_type::HostMirror h_mv_type;
 
-  Kokkos::View<int*[3], typename matrix_type::memory_space> mat_structure("Matrix Structure", 2);
+  Kokkos::View<int*[3], typename matrix_type::memory_space> mat_structure("Matrix Structure", numDimensions);
   typename Kokkos::View<int*[3], typename matrix_type::memory_space>::HostMirror mat_structure_h
     = Kokkos::create_mirror_view(mat_structure);
   Kokkos::deep_copy(mat_structure_h, mat_structure);
-  mat_structure_h(0, 0) = nx;
-  mat_structure_h(1, 0) = ny;
-  if(leftBC   == 1) { mat_structure_h(0, 1) = 1; }
-  if(rightBC  == 1) { mat_structure_h(0, 2) = 1; }
-  if(bottomBC == 1) { mat_structure_h(1, 1) = 1; }
-  if(topBC    == 1) { mat_structure_h(1, 2) = 1; }
+  if(numDimensions == 1) {
+    mat_structure_h(0, 0) = nx;
+  } else if(numDimensions == 2) {
+    mat_structure_h(0, 0) = nx;
+    mat_structure_h(1, 0) = ny;
+    if(leftBC   == 1) { mat_structure_h(0, 1) = 1; }
+    if(rightBC  == 1) { mat_structure_h(0, 2) = 1; }
+    if(bottomBC == 1) { mat_structure_h(1, 1) = 1; }
+    if(topBC    == 1) { mat_structure_h(1, 2) = 1; }
+  } else if(numDimensions == 3) {
+    mat_structure_h(0, 0) = nx;
+    mat_structure_h(1, 0) = ny;
+    mat_structure_h(2, 0) = nz;
+    if(leftBC   == 1) { mat_structure_h(0, 1) = 1; }
+    if(rightBC  == 1) { mat_structure_h(0, 2) = 1; }
+    if(frontBC  == 1) { mat_structure_h(1, 1) = 1; }
+    if(backBC   == 1) { mat_structure_h(1, 2) = 1; }
+    if(bottomBC == 1) { mat_structure_h(2, 1) = 1; }
+    if(topBC    == 1) { mat_structure_h(2, 2) = 1; }
+  }
   Kokkos::deep_copy(mat_structure, mat_structure_h);
 
   std::string discrectization_stencil;
@@ -93,8 +110,17 @@ int test_crs_matrix_singlevec(const bool banner, const int algo,
   } else if(stencil_type == 2) {
     discrectization_stencil = "FE";
   }
-  matrix_type A = Test::generate_structured_matrix2D<matrix_type>(discrectization_stencil,
-                                                                  mat_structure);
+
+  matrix_type A;
+  if(numDimensions == 1) {
+    A = Test::generate_structured_matrix1D<matrix_type>(mat_structure);
+  } else if(numDimensions == 2) {
+    A = Test::generate_structured_matrix2D<matrix_type>(discrectization_stencil,
+                                                        mat_structure);
+  } else if(numDimensions == 3) {
+    A = Test::generate_structured_matrix3D<matrix_type>(discrectization_stencil,
+                                                        mat_structure);
+  }
 
   mv_type x("X", A.numCols());
   mv_random_read_type t_x(x);
@@ -207,7 +233,9 @@ void print_help() {
   printf("  -l [LOOP]       : How many spmv to run to aggregate average time. \n");
   printf("  -nx             : How many nodes in x direction. \n");
   printf("  -ny             : How many nodes in y direction. \n");
+  printf("  -nz             : How many nodes in z direction. \n");
   printf("  -st             : The stencil type used for discretization: 1 -> FD, 2 -> FE.\n");
+  printf("  -dim            : Number of spacial dimensions used in the problem: 1, 2 or 3\n");
 }
 
 int main(int argc, char **argv)
@@ -217,7 +245,9 @@ int main(int argc, char **argv)
 
   int nx = 1000;
   int ny = 1000;
+  int nz = 1000;
   int stencil_type = 1;
+  int numDimensions = 2;
   int rows_per_thread = -1;
   int vector_length = -1;
   int team_size = -1;
@@ -233,7 +263,9 @@ int main(int argc, char **argv)
     {
       if((strcmp(argv[i],"-nx" )==0)) {nx=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-ny" )==0)) {ny=atoi(argv[++i]); continue;}
+      if((strcmp(argv[i],"-nz" )==0)) {nz=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-st" )==0)) {stencil_type=atoi(argv[++i]); continue;}
+      if((strcmp(argv[i],"-dim")==0)) {numDimensions=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-rpt")==0)) {rows_per_thread=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-ts" )==0)) {team_size=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-vl" )==0)) {vector_length=atoi(argv[++i]); continue;}
@@ -256,12 +288,13 @@ int main(int argc, char **argv)
 
   Kokkos::initialize(argc,argv);
 
-  int leftBC = 1, rightBC = 1, bottomBC = 1, topBC = 1;
+  int leftBC = 1, rightBC = 1, frontBC = 1, backBC = 1, bottomBC = 1, topBC = 1;
   Kokkos::Profiling::pushRegion("Structured spmv test");
   int total_errors = test_crs_matrix_singlevec<double>(true, STRUCT,
-                                                       nx, ny,
-                                                       leftBC, rightBC, bottomBC, topBC,
+                                                       numDimensions,
                                                        stencil_type,
+                                                       nx, ny, nz,
+                                                       leftBC, rightBC, frontBC, backBC, bottomBC, topBC,
                                                        rows_per_thread,
                                                        team_size,
                                                        vector_length,
@@ -270,9 +303,10 @@ int main(int argc, char **argv)
   Kokkos::Profiling::popRegion();
   Kokkos::Profiling::pushRegion("Unstructured spmv test");
   test_crs_matrix_singlevec<double>(false, UNSTR,
-                                    nx, ny,
-                                    leftBC, rightBC, bottomBC, topBC,
+                                    numDimensions,
                                     stencil_type,
+                                    nx, ny, nz,
+                                    leftBC, rightBC, frontBC, backBC, bottomBC, topBC,
                                     rows_per_thread,
                                     team_size,
                                     vector_length,
@@ -280,10 +314,11 @@ int main(int argc, char **argv)
                                     loop);
   Kokkos::Profiling::popRegion();
 
-  if(total_errors == 0)
+  if(total_errors == 0) {
     printf("Kokkos::MultiVector Test: Passed\n");
-  else
+  } else {
     printf("Kokkos::MultiVector Test: Failed\n");
+  }
 
 
   Kokkos::finalize();
