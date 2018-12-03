@@ -59,12 +59,12 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
   // Get input parameters
   std::string discretization_stencil =  params.get("stencil type","FE");
 
-  int dim = params.get("dimension",0);
+  int dim = params.get("dimension", 0);
   Teuchos::Array<LocalOrdinal> points_per_dim;
-  points_per_dim = params.get("points per dimension",points_per_dim);
+  points_per_dim = params.get("points per dimension", points_per_dim);
   Teuchos::Array<LocalOrdinal> boundary_low, boundary_high;
-  boundary_low  = params.get("low boundary",boundary_low);
-  boundary_high = params.get("high boundary",boundary_high);
+  boundary_low  = params.get("low boundary",  boundary_low);
+  boundary_high = params.get("high boundary", boundary_high);
 
   // Santity check stencil
   if(discretization_stencil == "FD" || discretization_stencil == "fd" || discretization_stencil == "finite difference")
@@ -102,7 +102,6 @@ StructuredCrsWrapper<Scalar,LocalOrdinal,GlobalOrdinal,Node>::StructuredCrsWrapp
     mat_structure_h(i,0) = points_per_dim[i];
     mat_structure_h(i,1) = boundary_low[i];
     mat_structure_h(i,2) = boundary_high[i];
-
   }
   Kokkos::deep_copy(mat_structure, mat_structure_h);
 

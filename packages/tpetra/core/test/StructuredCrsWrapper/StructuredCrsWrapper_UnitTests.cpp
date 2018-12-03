@@ -473,6 +473,7 @@ namespace { // (anonymous)
 
   using Tpetra::TestingUtilities::getDefaultComm;
   using Tpetra::createContigMapWithNode;
+  using Tpetra::createNonContigMapWithNode;
   using Teuchos::RCP;
   using Teuchos::ArrayRCP;
   using Teuchos::rcp;
@@ -523,6 +524,7 @@ namespace { // (anonymous)
     typedef typename ST::magnitudeType Mag;
     typedef Teuchos::ScalarTraits<Mag> MT;
     const GST INVALID = Teuchos::OrdinalTraits<GST>::invalid();
+
     // get a comm
     RCP<const Comm<int> > comm = getDefaultComm();
     int myRank  = comm->getRank();
@@ -541,9 +543,27 @@ namespace { // (anonymous)
       GO cols[3];
       Scalar vals[3];
       int idx=0;
-      if(i==0 && myRank) {cols[idx] = row - 1; vals[idx] = -one; idx++;}
-      cols[idx] = row; vals[idx] = 2*one; idx++;
-      if(i==numLocal-1 && myRank!=numProc-1) {cols[idx] = row + 1; vals[idx] = -one; idx++;}
+      if(i == 0 && myRank == 0) {
+        idx = 2;
+        cols[0] = row;
+        vals[0] = one;
+        cols[1] = row + 1;
+        vals[1] = -one;
+      } else if(i==numLocal-1 && myRank == numProc-1) {
+        idx = 2;
+        cols[0] = row - 1;
+        vals[0] = -one;
+        cols[1] = row;
+        vals[1] = one;
+      } else {
+        idx = 3;
+        cols[0] = row - 1;
+        vals[0] = -one;
+        cols[1] = row;
+        vals[1] = 2*one;
+        cols[2] = row + 1;
+        vals[2] = -one;
+      }
 
       Crs.insertGlobalValues(row,idx,vals,cols);
     }
@@ -557,8 +577,8 @@ namespace { // (anonymous)
     params.set("stencil type","FD");
     Teuchos::Array<LO> ppd(1),boundary_lo(1),boundary_hi(1);
     ppd[0] = numLocal;
-    boundary_lo[0] = (numProc == 1 || myRank == 0) ? 0 : 1;
-    boundary_hi[0] = (numProc == 1 || myRank != numProc-1) ? 0 : 1;
+    boundary_lo[0] = (numProc == 1 || myRank == 0) ? 1 : 0;
+    boundary_hi[0] = (numProc == 1 || myRank != numProc-1) ? 1 : 0;
     params.set("points per dimension", ppd);
     params.set("low boundary",boundary_lo);
     params.set("high boundary",boundary_hi);
@@ -587,103 +607,304 @@ namespace { // (anonymous)
 
 
 
-template<class Scalar, class LO, class GO, class Node>
-bool test_2d_serial(Teuchos::ParameterList & params, int numVecs) {
-  typedef Tpetra::CrsMatrix<Scalar,LO,GO,Node> MAT;
-  typedef Tpetra::Experimental::StructuredCrsWrapper<Scalar,LO,GO,Node> SMAT;
-  typedef Teuchos::ScalarTraits<Scalar> ST;
-  typedef Tpetra::MultiVector<Scalar,LO,GO,Node> MV;
-  typedef typename ST::magnitudeType Mag;
-  //  typedef Teuchos::ScalarTraits<Mag> MT;
-  typedef typename MAT::local_matrix_type local_matrix_type;
-  typedef Tpetra::Experimental::StructuredCrsWrapper<Scalar,LO,GO,Node> SMAT;
-  const GST INVALID = Teuchos::OrdinalTraits<GST>::invalid();
-  Scalar one = Teuchos::ScalarTraits<Scalar>::one();
+  template<class Scalar, class LO, class GO, class Node>
+  bool test_2d_serial(Teuchos::ParameterList & params, int numVecs) {
+    typedef Tpetra::CrsMatrix<Scalar,LO,GO,Node> MAT;
+    typedef Tpetra::Experimental::StructuredCrsWrapper<Scalar,LO,GO,Node> SMAT;
+    typedef Teuchos::ScalarTraits<Scalar> ST;
+    typedef Tpetra::MultiVector<Scalar,LO,GO,Node> MV;
+    typedef typename ST::magnitudeType Mag;
+    typedef Tpetra::Experimental::StructuredCrsWrapper<Scalar,LO,GO,Node> SMAT;
+    Scalar one = Teuchos::ScalarTraits<Scalar>::one();
 
-  RCP<const Comm<int> > comm = getDefaultComm();
-
-  bool success = true;
-
-  // Get params
-  std::string discretization_stencil =  params.get("stencil type","FD");
-  int dim = params.get("dimension",2);
-  Teuchos::Array<LO> points_per_dim;
-  points_per_dim = params.get("points per dimension",points_per_dim);
-  Teuchos::Array<LO> boundary_low, boundary_high;
-  boundary_low  = params.get("low boundary",boundary_low);
-  boundary_high = params.get("high boundary",boundary_high);
-
-  // Generate a 2D stencil
-  Kokkos::View<LO*[3], typename local_matrix_type::memory_space> mat_structure("Matrix Structure", 2);
-  typename Kokkos::View<LO*[3], typename local_matrix_type::memory_space>::HostMirror mat_structure_h
-    = Kokkos::create_mirror_view(mat_structure);
-  Kokkos::deep_copy(mat_structure_h, mat_structure);
-  for(int i=0; i<dim; i++) {
-    mat_structure_h(i,0) = points_per_dim[i];
-    mat_structure_h(i,1) = boundary_low[i];
-    mat_structure_h(i,2) = boundary_high[i];
-
-  }
-  Kokkos::deep_copy(mat_structure, mat_structure_h);
-
-
-  // Make a local CRS matrix
-  local_matrix_type local_mat = Test::generate_structured_matrix2D<local_matrix_type>(discretization_stencil,mat_structure);
-
-
-  // Wrap local matrix to Tpetra
-  size_t numLocal = points_per_dim[0];
-  for(int i=1; i<dim; i++)
-    numLocal *= points_per_dim[i];
-  RCP<const Tpetra::Map<LO,GO,Node> > map = createContigMapWithNode<LO,GO,Node>(INVALID,numLocal,comm);
-  RCP<MAT> Tcrs = rcp(new MAT(map,map,local_mat));
-
-  // Now do a structured wrap
-  SMAT Tstruct(Tcrs,params);
-
-  // Compare output for an input multivector of ones
-  MV mvone(map,numVecs,false), mvres1(map,numVecs,false), mvres2(map,numVecs,false);
-  mvone.putScalar(one);
-
-  Tcrs->apply(mvone,mvres1);
-  Tstruct.apply(mvone,mvres2);
-
-  Array<Mag> norms1(numVecs), norms2(numVecs);
-  mvres1.norm1(norms1());
-  mvres2.norm1(norms2());
-  Scalar diff = 0.0;
-  for (int i = 0; i<numVecs; i++)
-    diff += std::abs(norms1[i] - norms2[i]);
-
-  if(diff > 10*ST::eps()) success=false;
-
-
-  return success;
-}
-
-
-
-
-TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, GO, Scalar, Node )
-  {
     RCP<const Comm<int> > comm = getDefaultComm();
-    int numProc = comm->getSize();
-    if(numProc > 1) {TEST_EQUALITY_CONST( 1, 1 );}
+    const int numRanks = comm->getSize();
+    const int myRank   = comm->getRank();
 
-    Teuchos::ParameterList params;
-    params.set("stencil type","FD");
-    params.set("dimension",2);
+    bool success = true;
+
+    // Get global params
+    std::string discretization_stencil =  params.get("stencil type","FD");
+    Teuchos::Array<LO> points_per_dim;
+    points_per_dim = params.get("points per dimension", points_per_dim);
+    Teuchos::Array<LO> boundary_low, boundary_high;
+    boundary_low  = params.get("low boundary", boundary_low);
+    boundary_high = params.get("high boundary", boundary_high);
+    const GST numGblRows = static_cast<GST>(points_per_dim[1]*points_per_dim[0]);
+
+    // Compute local params based on number of ranks
+    Array<LO> lclNumPointsPerDim(2);
+    if(numRanks == 1) {
+      lclNumPointsPerDim[0] = points_per_dim[0];
+      lclNumPointsPerDim[1] = points_per_dim[1];
+    } else if(numRanks == 4) {
+      lclNumPointsPerDim[0] = points_per_dim[0] / 2;
+      lclNumPointsPerDim[1] = points_per_dim[1] / 2;
+    }
+    const size_t numLclRows = static_cast<size_t>(lclNumPointsPerDim[1]*lclNumPointsPerDim[0]);
+
+    RCP<const Tpetra::Map<LO,GO,Node> > rowMap = createContigMapWithNode<LO,GO,Node>(numGblRows,
+                                                                                     numLclRows,
+                                                                                     comm);
+
+    const GO nodeOffset = myRank*numLclRows;
+    int leftBC = 0, rightBC = 0, bottomBC = 0, topBC = 0;
+    int leftGhost = 0, rightGhost = 0, bottomGhost = 0, topGhost = 0;
+    if(numRanks == 1) {
+      leftBC = 1;
+      rightBC = 1;
+      bottomBC = 1;
+      topBC = 1;
+    } else if(numRanks == 4) {
+      if(myRank == 0) {
+        leftBC = 1;
+        bottomBC = 1;
+
+        rightGhost = 1;
+        topGhost = 1;
+      } else if(myRank == 1) {
+        rightBC = 1;
+        bottomBC = 1;
+
+        leftGhost = 1;
+        topGhost = 1;
+      } else if(myRank == 2) {
+        leftBC = 1;
+        topBC = 1;
+
+        rightGhost = 1;
+        bottomGhost = 1;
+      } else if(myRank == 3) {
+        rightBC = 1;
+        topBC = 1;
+
+        leftGhost = 1;
+        bottomGhost = 1;
+      }
+    }
+
+    size_t numLclCols = numLclRows
+      + static_cast<size_t>(lclNumPointsPerDim[0]) + static_cast<size_t>(lclNumPointsPerDim[1]);
+    Array<GO> colMapGIDs(numLclCols);
+    Teuchos::ArrayRCP<size_t> numEntriesPerRow(numLclRows);
+    LO countNodes = 0;
+    if(bottomGhost == 1) {
+      for(LO idx = 0; idx < lclNumPointsPerDim[0]; ++idx) {
+        colMapGIDs[countNodes] = static_cast<GO>(nodeOffset - numLclRows - lclNumPointsPerDim[0] + idx);
+        ++countNodes;
+      }
+    }
+    for(LO j = 0; j < lclNumPointsPerDim[1]; ++j) {
+      if(leftGhost == 1) {
+        colMapGIDs[countNodes] = static_cast<GO>(nodeOffset - numLclRows + (j + 1)*lclNumPointsPerDim[0] - 1);
+        ++countNodes;
+      }
+      for(LO i = 0; i < lclNumPointsPerDim[0]; ++i) {
+        colMapGIDs[countNodes] = static_cast<GO>(nodeOffset + j*lclNumPointsPerDim[0] + i);
+        ++countNodes;
+
+        // Fill nnz per row
+        numEntriesPerRow[j*lclNumPointsPerDim[0] + i] = 5;
+        if((i == 0 && leftBC == 1) || (i == lclNumPointsPerDim[0] - 1 && rightBC == 1)) {
+          numEntriesPerRow[j*lclNumPointsPerDim[0] + i] -= 1;
+        }
+        if((j == 0 && bottomBC == 1) || (j == lclNumPointsPerDim[1] - 1 && topBC == 1)) {
+          numEntriesPerRow[j*lclNumPointsPerDim[0] + i] -= 1;
+        }
+      }
+      if(rightGhost == 1) {
+        colMapGIDs[countNodes] = static_cast<GO>(nodeOffset + numLclRows + j*lclNumPointsPerDim[0]);
+        ++countNodes;
+      }
+    }
+    if(topGhost == 1) {
+      for(LO idx = 0; idx < lclNumPointsPerDim[0]; ++idx) {
+        colMapGIDs[countNodes] = static_cast<GO>(nodeOffset + 2*numLclRows + idx);
+        ++countNodes;
+      }
+    }
+
+    RCP<const Tpetra::Map<LO,GO,Node> > colMap = createNonContigMapWithNode<LO,GO,Node>(colMapGIDs(),
+                                                                                        comm);
+
+    RCP<MAT> Tcrs = rcp(new MAT(rowMap, colMap, numEntriesPerRow));
+
+    LO rowIdx, numRowEntries, numNodesPerRow = lclNumPointsPerDim[0], bottomOffset = 0;
+    if(leftGhost == 1)   {++numNodesPerRow;}
+    if(rightGhost == 1)  {++numNodesPerRow;}
+    if(bottomGhost == 1) {bottomOffset = lclNumPointsPerDim[0];}
+    Array<LO> colIndices(5);
+    Array<Scalar> values(5);
+    for(LO j = 0; j < lclNumPointsPerDim[1]; ++j) {
+      for(LO i = 0; i < lclNumPointsPerDim[0]; ++i) {
+        rowIdx = j*lclNumPointsPerDim[0] + i;
+        numRowEntries = numEntriesPerRow[rowIdx];
+
+        if((i == 0 && leftBC == 1) && (j == 0 && bottomBC == 1)) { // bottom left corner
+          colIndices[0] = 0 + bottomOffset;
+          colIndices[1] = 1 + bottomOffset;
+          colIndices[2] = numNodesPerRow + bottomOffset;
+
+          values[0] = 2.0;
+          values[1] = -1.0;
+          values[2] = -1.0;
+        } else if((i == 0 && leftBC == 1) && (j == lclNumPointsPerDim[1] - 1 && topBC == 1)) { // top left corner
+          colIndices[0] = (lclNumPointsPerDim[1] - 2)*numNodesPerRow + bottomOffset;
+          colIndices[1] = (lclNumPointsPerDim[1] - 1)*numNodesPerRow + bottomOffset;
+          colIndices[2] = (lclNumPointsPerDim[1] - 1)*numNodesPerRow + 1 + bottomOffset;
+
+          values[0] = -1.0;
+          values[1] = 2.0;
+          values[2] = -1.0;
+        } else if((i == lclNumPointsPerDim[0] - 1 && rightBC == 1) && (j == 0 && bottomBC == 1)) { // bottom right corner
+          colIndices[0] = numNodesPerRow - 2 + bottomOffset;
+          colIndices[1] = numNodesPerRow - 1 + bottomOffset;
+          colIndices[2] = 2*numNodesPerRow - 1 + bottomOffset;
+
+          values[0] = -1.0;
+          values[1] = 2.0;
+          values[2] = -1.0;
+        } else if((i == lclNumPointsPerDim[0] - 1 && rightBC == 1) && (j == lclNumPointsPerDim[1] - 1 && topBC == 1)) { // top right corner
+          colIndices[0] = (lclNumPointsPerDim[1] - 1)*numNodesPerRow - 1 + bottomOffset;
+          colIndices[1] = lclNumPointsPerDim[1]*numNodesPerRow - 2 + bottomOffset;
+          colIndices[2] = lclNumPointsPerDim[1]*numNodesPerRow - 1 + bottomOffset;
+
+          values[0] = -1.0;
+          values[1] = -1.0;
+          values[2] = 2.0;
+        } else if(i == 0 && leftBC == 1) { // left edge
+          if(j == 0 && bottomOffset > 0) {
+            colIndices[0] = (j - 1)*bottomOffset + i + bottomOffset + leftGhost;
+          } else {
+            colIndices[0] = (j - 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          }
+          colIndices[1] = j*numNodesPerRow + i + bottomOffset + leftGhost;
+          colIndices[2] = j*numNodesPerRow + i + 1 + bottomOffset + leftGhost;
+          colIndices[3] = (j + 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+
+          values[0] = -1.0;
+          values[1] = 3.0;
+          values[2] = -1.0;
+          values[3] = -1.0;
+        } else if(i == lclNumPointsPerDim[0] - 1 && rightBC == 1) { // right edge
+          colIndices[0] = (j - 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          colIndices[1] = j*numNodesPerRow + i - 1 + bottomOffset + leftGhost;
+          colIndices[2] = j*numNodesPerRow + i + bottomOffset + leftGhost;
+          if(j == lclNumPointsPerDim[1] - 1 && topGhost) {
+            colIndices[3] = (j + 1)*numNodesPerRow + i + bottomOffset;
+          } else {
+            colIndices[3] = (j + 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          }
+
+          values[0] = -1.0;
+          values[1] = -1.0;
+          values[2] = 3.0;
+          values[3] = -1.0;
+        } else if(j == 0 && bottomBC == 1) { // bottom edge
+          colIndices[0] = i - 1 + bottomOffset + leftGhost;
+          colIndices[1] = i + bottomOffset + leftGhost;
+          colIndices[2] = i + 1 + bottomOffset + leftGhost;
+          colIndices[3] = numNodesPerRow + i + bottomOffset + leftGhost;
+
+          values[0] = -1.0;
+          values[1] = 3.0;
+          values[2] = -1.0;
+          values[3] = -1.0;
+        } else if(j == lclNumPointsPerDim[1] - 1 && topBC == 1) { // top edge
+          colIndices[0] = (j - 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          colIndices[1] = j*numNodesPerRow + i - 1 + bottomOffset + leftGhost;
+          colIndices[2] = j*numNodesPerRow + i + bottomOffset + leftGhost;
+          colIndices[3] = j*numNodesPerRow + i + 1 + bottomOffset + leftGhost;
+
+          values[0] = -1.0;
+          values[1] = -1.0;
+          values[2] = 3.0;
+          values[3] = -1.0;
+        } else {
+          if(j == 0 && bottomGhost) {
+            colIndices[0] = j*numNodesPerRow + i;
+          } else {
+            colIndices[0] = (j - 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          }
+          colIndices[1] = j*numNodesPerRow + i - 1 + bottomOffset + leftGhost;
+          colIndices[2] = j*numNodesPerRow + i + bottomOffset + leftGhost;
+          colIndices[3] = j*numNodesPerRow + i + 1 + bottomOffset + leftGhost;
+          if(j == lclNumPointsPerDim[1] - 1 && topGhost) {
+            colIndices[4] = (j + 1)*numNodesPerRow + i + bottomOffset;
+          } else {
+            colIndices[4] = (j + 1)*numNodesPerRow + i + bottomOffset + leftGhost;
+          }
+
+          values[0] = -1.0;
+          values[1] = -1.0;
+          values[2] = 4.0;
+          values[3] = -1.0;
+          values[4] = -1.0;
+        }
+
+        Tcrs->insertLocalValues(rowIdx, colIndices(0, numRowEntries), values(0, numRowEntries));
+      }
+    }
+    Tcrs->fillComplete();
+
+    // Now do a structured wrap, we need to reset
+    // the params here because of the parallel
+    // decomposition of the computational domain
     Teuchos::Array<LO> ppd(2), lo(2), hi(2);
-    ppd[0] = 5; ppd[1] = 10;
+    ppd[0] = lclNumPointsPerDim[0]; ppd[1] = lclNumPointsPerDim[1];
     lo[0] = 1; lo[1] = 1;
-    hi[0] = 1; hi[1] = 1;
-
+    hi[0] =1; hi[1] = 1;
     params.set("points per dimension",ppd);
     params.set("low boundary",lo);
     params.set("high boundary",hi);
+    SMAT Tstruct(Tcrs, params);
 
-    bool rv = test_2d_serial<Scalar,LO,GO,Node>(params,1);
-    TEST_EQUALITY_CONST( rv, true );
+    // Compare output for an input multivector of ones
+    MV mvone(rowMap, numVecs, false), mvres1(rowMap, numVecs, false), mvres2(rowMap, numVecs, false);
+    mvone.putScalar(one);
+
+    Tcrs->apply(mvone,mvres1);
+    Tstruct.apply(mvone,mvres2);
+
+    Array<Mag> norms1(numVecs), norms2(numVecs);
+    mvres1.norm1(norms1());
+    mvres2.norm1(norms2());
+    Scalar diff = 0.0;
+    for (int i = 0; i<numVecs; i++)
+      diff += std::abs(norms1[i] - norms2[i]);
+
+    if(diff > 10*ST::eps()) success=false;
+
+
+    return success;
+  }
+
+
+
+
+  TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, GO, Scalar, Node )
+  {
+    RCP<const Comm<int> > comm = getDefaultComm();
+    const int numProc = comm->getSize();
+    if((numProc != 1) && (numProc != 4)) {
+      TEST_EQUALITY_CONST( 1, 1 );
+    } else {
+      // Set the global parameters for the problem
+      Teuchos::ParameterList params;
+      params.set("stencil type","FD");
+      params.set("dimension",2);
+      Teuchos::Array<LO> ppd(2), lo(2), hi(2);
+      ppd[0] = 6; ppd[1] = 10;
+      lo[0] = 1; lo[1] = 1;
+      hi[0] = 1; hi[1] = 1;
+
+      params.set("points per dimension",ppd);
+      params.set("low boundary",lo);
+      params.set("high boundary",hi);
+
+      bool rv = test_2d_serial<Scalar,LO,GO,Node>(params,1);
+      TEST_EQUALITY_CONST( rv, true );
+    }
    }
 
 
@@ -696,4 +917,4 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( StructuredCrsWrapper, 2D_fd_serial_1rhs, LO, 
 
   TPETRA_INSTANTIATE_SLGN_NO_ORDINAL_SCALAR( UNIT_TEST_GROUP )
 
-}
+} // namespace (anonymous)
