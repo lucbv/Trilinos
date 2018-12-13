@@ -1463,18 +1463,20 @@ namespace MueLu {
     // nodes. We uses these groups to operate on the dense matrices but need to
     // store the nodes in their original order after groupd operations are completed.
     LO countInterior=0, countFace=0, countEdge=0, countCorner =0;
+    std::cout << "Entering ComputeLocalEntries" << std::endl;
     // Loop over all coarse elements
     for (size_t elemIdx = 0; elemIdx < elementsData.size(); ++elemIdx) {
+      std::cout << "elemIdx = " << elemIdx << std::endl;
       typename BlackBoxConnectivity::elementEntry element = elementsData[elemIdx];
       Array<LO> connectivity = element.connectivity_;
+      LO numNodesInElement = connectivity.size();
       LO ke = 0, je = 0, ie = 0;
       // Loop over nodes in connectivity
-      LO numNodesInElement = connectivity.size();
       Array<LO> collapseDir(numNodesInElement*BlkSize);
-      for(size_t i = 0; i < connectivity.size(); ++i) {
+      for(size_t i = 0; i < numNodesInElement; ++i) {
         LO nodeIdx = connectivity[i];
         GetIJKfromIndex(nodeIdx, lFineNodesPerDir, ie, je, ke);
-        std::cout << "ie = " << i << "je = " << je << "ke = " << ke << std::endl;
+        std::cout << "ie = " << ie << " je = " << je << " ke = " << ke << std::endl;
       }
     }
   } // ComputeLocalEntriesUsingConnectivity()

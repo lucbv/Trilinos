@@ -121,7 +121,7 @@ namespace MueLu {
         TEUCHOS_TEST_FOR_EXCEPTION(dimensions.size() != 3, Exceptions::RuntimeError, "dimensions needs to be of size 3.");
         TEUCHOS_TEST_FOR_EXCEPTION(isMeshEdge.size() != 6, Exceptions::RuntimeError, "isMeshEdge needs to be of size 6.");
 
-        connectivity = connectivity;
+        connectivity_ = connectivity;
         dimensions_ = dimensions;
         isMeshEdge_ = isMeshEdge;
       }
