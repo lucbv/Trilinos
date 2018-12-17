@@ -992,7 +992,15 @@ namespace MueLuTests {
 
       myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
       LO BlkSize = 1;
-      myBBPFact->ComputeLocalEntriesUsingConnectivity(BBConnectivity->elementsData, BlkSize, lFineNodesPerDir);
+      Array<LO> elementNodesPerDir(3);
+      elementNodesPerDir[0] = 5;
+      elementNodesPerDir[1] = 3;
+      elementNodesPerDir[2] = 3;
+      Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
+      LO numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
+      Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
+      myBBPFact->ComputeLocalEntriesUsingConnectivity(BBConnectivity->elementsData, BlkSize, lFineNodesPerDir,
+                                                      elementNodesPerDir, Pi, Pf, Pe, dofType, numDimensions, lDofInd);
       LO ie, je, ke;
       LO N = 44; // 5x3x3 nodess in 3D
       //for(LO nodeIndex=0; nodeIndex < N; nodeIndex++)

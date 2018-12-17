@@ -1440,22 +1440,11 @@ namespace MueLu {
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   ComputeLocalEntriesUsingConnectivity(const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
-                                       const LO BlkSize, const Array<LO> lFineNodesPerDir)
+                                       const LO BlkSize, const Array<LO> lFineNodesPerDir,const Array<LO> elementNodesPerDir,
+                                       Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+                                       Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType, const LO numDimensions,
+                                       Array<LO>& lDofInd)
   const {
-  //ComputeLocalEntriesUsingConnectivity(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
-  //                    const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
-  //                    const Array<LO> lCoarseElementsPerDir, const LO numDimensions,
-  //                    const Array<LO> lFineNodesPerDir, const Array<GO> gFineNodesPerDir,
-  //                    const Array<GO> gIndices, const Array<LO> lCoarseNodesPerDir,
-  //                    const Array<bool> ghostInterface, const Array<int> elementFlags,
-  //                    const std::string stencilType, const std::string blockStrategy,
-  //                    const Array<LO> elementNodesPerDir, const LO numNodesInElement,
-  //                    const Array<GO> colGIDs,
-  //                    const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
-  //                    Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
-  //                    Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
-  //                    Array<LO>& lDofInd) const {
-
     // First extract data from Aghosted and move it to the corresponding dense matrix.
     // We can make use of our handy BBConnectivity for this, as well as getIJKfromIndex.
     // At the same time we want to compute a mapping from the element indexing to
@@ -1475,10 +1464,44 @@ namespace MueLu {
       Array<LO> collapseDir(numNodesInElement*BlkSize);
       for(size_t i = 0; i < numNodesInElement; ++i) {
         LO nodeIdx = connectivity[i];
+        std::cout << "nodeIdx = " << nodeIdx << std::endl;
         GetIJKfromIndex(nodeIdx, lFineNodesPerDir, ie, je, ke);
         std::cout << "ie = " << ie << " je = " << je << " ke = " << ke << std::endl;
+        SetDofTypeAndCollapseDir(ie, je, ke, elementNodesPerDir, dofType, lDofInd,collapseDir, BlkSize);
       }
     }
+    LO numInteriorNodes = 0, numFaceNodes = 0, numEdgeNodes = 0, numCornerNodes = 8;
+    numInteriorNodes = (elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      *(elementNodesPerDir[2] - 2);
+    numFaceNodes = 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      + 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[2] - 2)
+      + 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
+    numEdgeNodes = 4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
+      + 4*(elementNodesPerDir[2] - 2);
+    // Diagonal blocks
+    Teuchos::SerialDenseMatrix<LO,SC> Aii(BlkSize*numInteriorNodes, BlkSize*numInteriorNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Aff(BlkSize*numFaceNodes,     BlkSize*numFaceNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Aee(BlkSize*numEdgeNodes,     BlkSize*numEdgeNodes);
+    // Upper triangular blocks
+    Teuchos::SerialDenseMatrix<LO,SC> Aif(BlkSize*numInteriorNodes, BlkSize*numFaceNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Aie(BlkSize*numInteriorNodes, BlkSize*numEdgeNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Afe(BlkSize*numFaceNodes,     BlkSize*numEdgeNodes);
+    // Coarse nodes "right hand sides" and local prolongators
+    Teuchos::SerialDenseMatrix<LO,SC> Aic(BlkSize*numInteriorNodes, BlkSize*numCornerNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Afc(BlkSize*numFaceNodes,     BlkSize*numCornerNodes);
+    Teuchos::SerialDenseMatrix<LO,SC> Aec(BlkSize*numEdgeNodes,     BlkSize*numCornerNodes);
+    Pi.shape( BlkSize*numInteriorNodes, BlkSize*numCornerNodes);
+    Pf.shape( BlkSize*numFaceNodes,     BlkSize*numCornerNodes);
+    Pe.shape( BlkSize*numEdgeNodes,     BlkSize*numCornerNodes);
+
+    ArrayView<const LO> rowIndices;
+    ArrayView<const SC> rowValues;
+    LO idof, iInd, jInd;
+    int iType = 0, jType = 0;
+    int orientation = -1;
+    int collapseFlags[3] = {};
+    Array<SC> stencil((std::pow(3,numDimensions))*BlkSize);
+
   } // ComputeLocalEntriesUsingConnectivity()
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -1796,6 +1819,87 @@ namespace MueLu {
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
+  SetDofTypeAndCollapseDir(const LO ie, const LO je, const LO ke, const Array<LO> elementNodesPerDir,
+                           Array<LO>& dofType, Array<LO>& lDofInd, Array<LO>& collapseDir,
+                           const LO BlkSize)
+                           const {
+    LO countInterior=0, countFace=0, countEdge=0, countCorner =0;
+    if((ke == 0 || ke == elementNodesPerDir[2]-1)
+      && (je == 0 || je == elementNodesPerDir[1]-1)
+      && (ie == 0 || ie == elementNodesPerDir[0]-1)) {
+      for(LO dof = 0; dof < BlkSize; ++dof) {
+        dofType[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+            + je*elementNodesPerDir[0] + ie) + dof] = 0;
+        lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countCorner + dof;
+      }
+    ++countCorner;
+
+    // Check for edge node
+    } else if (((ke == 0 || ke == elementNodesPerDir[2]-1)
+        && (je == 0 || je == elementNodesPerDir[1]-1))
+      || ((ke == 0 || ke == elementNodesPerDir[2]-1)
+        && (ie == 0 || ie == elementNodesPerDir[0]-1))
+      || ((je == 0 || je == elementNodesPerDir[1]-1)
+        && (ie == 0 || ie == elementNodesPerDir[0]-1))) {
+        std::cout << "Edge" << std::endl;  
+        for(LO dof = 0; dof < BlkSize; ++dof) {
+          dofType[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = 1;
+          lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countEdge + dof;
+          if((ke == 0 || ke == elementNodesPerDir[2]-1)
+              && (je == 0 || je == elementNodesPerDir[1]-1)) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 0;
+          } else if((ke == 0 || ke == elementNodesPerDir[2]-1)
+              && (ie == 0 || ie == elementNodesPerDir[0]-1)) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 1;
+          } else if((je == 0 || je == elementNodesPerDir[1]-1
+                ) && (ie == 0 || ie == elementNodesPerDir[0]-1)) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 2;
+          }
+        }
+      ++countEdge;
+
+    // Check for face node
+    } else if ((ke == 0 || ke == elementNodesPerDir[2]-1)
+        || (je == 0 || je == elementNodesPerDir[1]-1)
+        || (ie == 0 || ie == elementNodesPerDir[0]-1)) {
+        for(LO dof = 0; dof < BlkSize; ++dof) {
+          dofType[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = 2;
+          lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countFace + dof;
+          if(ke == 0 || ke == elementNodesPerDir[2]-1) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 2;
+          } else if(je == 0 || je == elementNodesPerDir[1]-1) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 1;
+          } else if(ie == 0 || ie == elementNodesPerDir[0]-1) {
+            collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+                + je*elementNodesPerDir[0] + ie) + dof] = 0;
+          }
+        }
+        ++countFace;
+
+      // Otherwise it is an interior node
+    } else {
+        for(LO dof = 0; dof < BlkSize; ++dof) {
+          dofType[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = 3;
+          lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
+              + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countInterior +dof;
+        }
+        ++countInterior;
+    }
+  }
+
+  template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   CollapseStencil(const int type, const int orientation, const int collapseFlags[3],
                   Array<SC>& stencil) const {
 
@@ -2001,6 +2105,7 @@ namespace MueLu {
     je = ((index - ie)/Nx) % Ny;
     ke = (index - (Nx*je) - ie) / (Nx*Ny);
   }
+
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::GetNodeInfo(
