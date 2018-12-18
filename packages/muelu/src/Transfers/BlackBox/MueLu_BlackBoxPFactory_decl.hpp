@@ -152,18 +152,12 @@ namespace MueLu {
 
     void Build (Level& fineLevel, Level& coarseLevel) const;
     void BuildP(Level& fineLevel, Level& coarseLevel) const;
-    void BuildPCrs(RCP<Matrix>& A, RCP<CrsGraph>& connectivityGraph,
+    void BuildPCrs(Level &fineLevel, RCP<CrsGraph>& connectivityGraph,
                    RCP<BlackBoxConnectivity>& coarseElemGraph) const;
     void GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir, 
                          LO& ie, LO& je, LO& ke) const;
 
 
-    void ComputeLocalEntriesUsingConnectivity(const Array<typename BlackBoxConnectivity::elementEntry> elementsData,
-                                              const LO BlkSize, const Array<LO> lFineNodesPerDir,
-                                              const Array<LO> elementNodesPerDir,
-                                              Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
-                                              Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType, const LO numDimensions,
-                                              Array<LO>& lDofInd) const;
     //@}
 
   private:
@@ -197,19 +191,15 @@ namespace MueLu {
                           LO& lNumCoarseNodes, ArrayRCP<Array<double> > coarseNodes,
                           Array<int>& boundaryFlags, RCP<NodesIDs> ghostedCoarseNodes) const;
 
-    void ComputeLocalEntries(const RCP<const Matrix>& Aghost, const Array<LO> coarseRate,
-                             const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
-                             const Array<LO> lCoarseElementsPerDir,
-                             const LO numDimensions, const Array<LO> lFineNodesPerDir,
-                             const Array<GO> gFineNodesPerDir, const Array<GO> gIndices,
-                             const Array<LO> lCoarseNodesPerDir, const Array<bool> ghostInterface,
-                             const Array<int> elementFlags, const std::string stencilType,
-                             const std::string blockStrategy, const Array<LO> elementNodesPerDir,
-                             const LO numNodesInElement, const Array<GO> colGIDs,
-                             Teuchos::SerialDenseMatrix<LO,SC>& Pi,
-                             Teuchos::SerialDenseMatrix<LO,SC>& Pf,
-                             Teuchos::SerialDenseMatrix<LO,SC>& Pe,
-                             Array<LO>& dofType, Array<LO>& lDofInd) const;
+    void ComputeLocalEntries(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
+                      const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
+                      const LO numDimensions, const Array<LO> lFineNodesPerDir,
+                      const Array<bool> ghostInterface, const Array<int> elementFlags,
+                      const std::string stencilType, const std::string blockStrategy,
+                      const Array<LO> elementNodesPerDir, const LO numNodesInElement,
+                      Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+                      Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
+                      Array<LO>& lDofInd) const;
 
     void CollapseStencil(const int type, const int orientation, const int collapseFlags[3],
                          Array<SC>& stencil) const ;
@@ -222,9 +212,6 @@ namespace MueLu {
     void GetNodeInfo(const LO ie, const LO je, const LO ke, const Array<LO> elementNodesPerDir,
                      int* type, LO& ind, int* orientation) const;
 
-    void SetDofTypeAndCollapseDir(const LO ie, const LO je, const LO ke, const Array<LO> elementNodesPerDir,
-                           Array<LO>& dofType, Array<LO>& lDofInd, Array<LO>& collapseDir, const LO BlkSize)
-                           const; 
     void sh_sort_permute(
                 const typename Teuchos::Array<LocalOrdinal>::iterator& first1,
                 const typename Teuchos::Array<LocalOrdinal>::iterator& last1,

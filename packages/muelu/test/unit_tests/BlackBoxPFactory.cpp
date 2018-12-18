@@ -134,12 +134,10 @@ namespace MueLuTests {
                                  Teuchos::SerialDenseMatrix<LO,SC>& Pe,
                                  Array<LO>& dofType, Array<LO>& lDofInd) const {
       MueLu::BlackBoxPFactory<SC,LO,GO,NO> mybbmgPFactory;
-      mybbmgPFactory.ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
-                                         lCoarseElementsPerDir, numDimensions,
-                                         lFineNodesPerDir, gFineNodesPerDir, gIndices,
-                                         lCoarseNodesPerDir, ghostInterface, elementFlags,
-                                         stencilType, blockStrategy, elementNodesPerDir,
-                                         numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
+      mybbmgPFactory.ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, 
+                            numDimensions, lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
+                            blockStrategy, elementNodesPerDir, numNodesInElement,
+                            Pi, Pf, Pe, dofType, lDofInd);
     };
 
     void TestFormatStencil(const LO BlkSize, const Array<bool> ghostInterface, const LO ie,
@@ -990,17 +988,17 @@ namespace MueLuTests {
 
       //std::cout << "Hello 9" << std::endl;
 
-      myBBPFact->BuildPCrs(A, prolongatorGraph, BBConnectivity);
+      myBBPFact->BuildPCrs(level, prolongatorGraph, BBConnectivity);
       LO BlkSize = 1;
-      Array<LO> elementNodesPerDir(3);
-      elementNodesPerDir[0] = 5;
-      elementNodesPerDir[1] = 3;
-      elementNodesPerDir[2] = 3;
-      Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
-      LO numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
-      Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-      myBBPFact->ComputeLocalEntriesUsingConnectivity(BBConnectivity->elementsData, BlkSize, lFineNodesPerDir,
-                                                      elementNodesPerDir, Pi, Pf, Pe, dofType, numDimensions, lDofInd);
+      //Array<LO> elementNodesPerDir(3);
+      //elementNodesPerDir[0] = 5;
+      //elementNodesPerDir[1] = 3;
+      //elementNodesPerDir[2] = 3;
+      //Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
+      //LO numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
+      //Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
+      //myBBPFact->ComputeLocalEntriesUsingConnectivity(BBConnectivity->elementsData, BlkSize, lFineNodesPerDir,
+      //                                                elementNodesPerDir, Pi, Pf, Pe, dofType, numDimensions, lDofInd);
       LO ie, je, ke;
       LO N = 44; // 5x3x3 nodess in 3D
       //for(LO nodeIndex=0; nodeIndex < N; nodeIndex++)

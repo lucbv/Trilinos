@@ -108,7 +108,9 @@ namespace MueLu {
     struct elementEntry {
       // Define data to hold
       Array<LO> connectivity_;
+      // Number of nodes in each dimension
       Array<LO> dimensions_;
+      // Flag for on the edge
       Array<LO> isMeshEdge_;
 
       // Define empty constructor
