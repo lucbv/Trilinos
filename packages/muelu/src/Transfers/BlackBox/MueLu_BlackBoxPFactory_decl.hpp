@@ -192,17 +192,33 @@ namespace MueLu {
                           Array<int>& boundaryFlags, RCP<NodesIDs> ghostedCoarseNodes) const;
 
     void ComputeLocalEntries(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
-                      const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
-                      const LO numDimensions, const Array<LO> lFineNodesPerDir,
-                      const Array<bool> ghostInterface, const Array<int> elementFlags,
-                      const std::string stencilType, const std::string blockStrategy,
-                      const Array<LO> elementNodesPerDir, const LO numNodesInElement,
-                      Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
-                      Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
-                      Array<LO>& lDofInd) const;
+                             const Array<LO> endRate, const LO BlkSize, const
+                             Array<LO> elemInds, const LO numDimensions, const
+                             Array<LO> lFineNodesPerDir, const Array<LO> connectivity,
+                             const Array<bool> ghostInterface, const Array<int>
+                             elementFlags, const std::string stencilType, const
+                             std::string blockStrategy, const Array<LO>
+                             elementNodesPerDir, const LO numNodesInElement,
+                             Teuchos::SerialDenseMatrix<LO,SC>& Pi,
+                             Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+                             Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>&
+                             dofType,
+                             Array<LO>& lDofInd) const;
 
     void CollapseStencil(const int type, const int orientation, const int collapseFlags[3],
                          Array<SC>& stencil) const ;
+
+     void ExtractFromLocal(const Teuchos::SerialDenseMatrix<LO,SC> Pi, 
+                           const Teuchos::SerialDenseMatrix<LO,SC> Pf, const
+                           Teuchos::SerialDenseMatrix<LO,SC> Pe, LO numNodesInElement,
+                           const Array<LO> elementNodesPerDir, const Array<LO>
+                           connectivity, const Array<LO> lFineNodesPerDir, const int
+                           numDimensions, const Array<LO> coarseRate, const Array<LO>
+                           myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
+                           const Array<LO> elemInds, const LO BlkSize, const int nnzPerCoarseNode,
+                           const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy, 
+                           const Array<LO> lCoarseNodesPerDir,
+                           ArrayView<size_t>& ia, ArrayView<LO>& ja, ArrayView<SC>& val) const;
 
     void FormatStencil(const LO BlkSize, const Array<bool> ghostInterface, const LO ie,
                        const LO je, const LO ke, const ArrayView<const SC> rowValues,

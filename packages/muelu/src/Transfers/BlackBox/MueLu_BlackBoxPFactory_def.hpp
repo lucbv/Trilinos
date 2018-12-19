@@ -363,10 +363,16 @@ namespace MueLu {
       elemInds[0] = ie; elemInds[1] = je; elemInds[2] = ke;
       Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
       Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-      ComputeLocalEntries(Aghosted, coarseRate, endRate, BlkSize, elemInds, 
-                            numDimensions, lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
-                            blockStrategy, elementNodesPerDir, numNodesInElement,
-                            Pi, Pf, Pe, dofType, lDofInd);
+      // Compute Pi, Pe, Pf for the current coarse element 
+      ComputeLocalEntries(Aghosted, coarseRate, endRate, BlkSize, elemInds,
+                          numDimensions, lFineNodesPerDir, connectivity, ghostInterface, 
+                          elementFlags, stencilType, blockStrategy, elementNodesPerDir,
+                          numNodesInElement, Pi, Pf, Pe, dofType, lDofInd);
+      // Move data into arrayviews to be fanned out to global P
+      ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity,
+                       lFineNodesPerDir, numDimensions, coarseRate, myOffset, dofType,
+                       lDofInd, elemInds, BlkSize, nnzPerCoarseNode, ghostedCoarseNodes,
+                        blockStrategy, lCoarseNodesPerDir, ia, ja, val);
     }
   }
 
@@ -792,10 +798,10 @@ namespace MueLu {
           // Compute the element prolongator
           Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
           Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-          ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, numDimensions,
-                              lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
-                              blockStrategy, elementNodesPerDir, numNodesInElement,
-                              Pi, Pf, Pe, dofType, lDofInd);
+          //ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, numDimensions,
+          //                    lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
+          //                    blockStrategy, elementNodesPerDir, numNodesInElement,
+          //                    Pi, Pf, Pe, dofType, lDofInd);
 
           // Find ghosted LID associated with nodes in the element and eventually which of these
           // nodes are ghosts, this information is used to fill the local prolongator.
@@ -1591,14 +1597,17 @@ namespace MueLu {
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   ComputeLocalEntries(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
-                      const Array<LO> endRate, const LO BlkSize, const Array<LO> elemInds,
-                      const LO numDimensions, const Array<LO> lFineNodesPerDir,
-                      const Array<bool> ghostInterface, const Array<int> elementFlags,
-                      const std::string stencilType, const std::string blockStrategy,
-                      const Array<LO> elementNodesPerDir, const LO numNodesInElement,
-                      Teuchos::SerialDenseMatrix<LO,SC>& Pi, Teuchos::SerialDenseMatrix<LO,SC>& Pf,
-                      Teuchos::SerialDenseMatrix<LO,SC>& Pe, Array<LO>& dofType,
-                      Array<LO>& lDofInd) const {
+                      const Array<LO> endRate, const LO BlkSize, const
+                      Array<LO> elemInds, const LO numDimensions, const
+                      Array<LO> lFineNodesPerDir, const Array<LO> connectivity,
+                      const Array<bool> ghostInterface, const Array<int>
+                      elementFlags, const std::string stencilType, const
+                      std::string blockStrategy, const Array<LO>
+                      elementNodesPerDir, const LO numNodesInElement,
+                      Teuchos::SerialDenseMatrix<LO,SC>& Pi,
+                      Teuchos::SerialDenseMatrix<LO,SC>& Pf,
+                      Teuchos::SerialDenseMatrix<LO,SC>& Pe, 
+                      Array<LO>& dofType, Array<LO>& lDofInd) const {
 
     // First extract data from Aghosted and move it to the corresponding dense matrix
     // This step requires to compute the number of nodes (resp dofs) in the current
@@ -1643,131 +1652,129 @@ namespace MueLu {
     // LBV Note: we could skip the extraction of rows corresponding to coarse nodes
     //           we might want to fuse the first three loops and do integer arithmetic
     //           to have more optimization during compilation...
-    for(LO ke = 0; ke < elementNodesPerDir[2]; ++ke) {
-      for(LO je = 0; je < elementNodesPerDir[1]; ++je) {
-        for(LO ie = 0; ie < elementNodesPerDir[0]; ++ie) {
-          collapseFlags[0] = 0; collapseFlags[1] = 0; collapseFlags[2] = 0;
-          if((elementFlags[0] == 1 || elementFlags[0] == 3) && ie == 0) {
-            collapseFlags[0] += 1;
-          }
-          if((elementFlags[0] == 2 || elementFlags[0] == 3) && ie == elementNodesPerDir[0] - 1) {
-            collapseFlags[0] += 2;
-          }
-          if((elementFlags[1] == 1 || elementFlags[1] == 3) && je == 0) {
-            collapseFlags[1] += 1;
-          }
-          if((elementFlags[1] == 2 || elementFlags[1] == 3) && je == elementNodesPerDir[1] - 1) {
-            collapseFlags[1] += 2;
-          }
-          if((elementFlags[2] == 1 || elementFlags[2] == 3) && ke == 0) {
-            collapseFlags[2] += 1;
-          }
-          if((elementFlags[2] == 2 || elementFlags[2] == 3) && ke == elementNodesPerDir[2] - 1) {
-            collapseFlags[2] += 2;
-          }
+    LO ie, je, ke;
+    for(LO nodeIdx : connectivity){
+        GetIJKfromIndex(nodeIdx, elementNodesPerDir, ie, je, ke);
+        collapseFlags[0] = 0; collapseFlags[1] = 0; collapseFlags[2] = 0;
+        if((elementFlags[0] == 1 || elementFlags[0] == 3) && ie == 0) {
+          collapseFlags[0] += 1;
+        }
+        if((elementFlags[0] == 2 || elementFlags[0] == 3) && ie == elementNodesPerDir[0] - 1) {
+          collapseFlags[0] += 2;
+        }
+        if((elementFlags[1] == 1 || elementFlags[1] == 3) && je == 0) {
+          collapseFlags[1] += 1;
+        }
+        if((elementFlags[1] == 2 || elementFlags[1] == 3) && je == elementNodesPerDir[1] - 1) {
+          collapseFlags[1] += 2;
+        }
+        if((elementFlags[2] == 1 || elementFlags[2] == 3) && ke == 0) {
+          collapseFlags[2] += 1;
+        }
+        if((elementFlags[2] == 2 || elementFlags[2] == 3) && ke == elementNodesPerDir[2] - 1) {
+          collapseFlags[2] += 2;
+        }
 
-          // Based on (ie, je, ke) we detect the type of node we are dealing with
-          GetNodeInfo(ie, je, ke, elementNodesPerDir, &iType, iInd, &orientation);
-          for(LO dof0 = 0; dof0 < BlkSize; ++dof0) {
-            // Compute the dof index for each dof at point (ie, je, ke)
-            idof = ((elemInds[2]*coarseRate[2] + ke)*lFineNodesPerDir[1]*lFineNodesPerDir[0]
-                    + (elemInds[1]*coarseRate[1] + je)*lFineNodesPerDir[0]
-                    + elemInds[0]*coarseRate[0] + ie)*BlkSize + dof0;
-            Aghosted->getLocalRowView(idof, rowIndices, rowValues);
-            FormatStencil(BlkSize, ghostInterface, ie, je, ke, rowValues,
-                          elementNodesPerDir, collapseFlags, stencilType, stencil);
-            LO io, jo, ko;
-            if(iType == 3) {// interior node, no stencil collapse needed
-              for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
-                // Find (if, jf, kf) the indices associated with the interacting node
-                ko = ke + (interactingNode / 9 - 1);
-                {
-                  LO tmp = interactingNode % 9;
-                  jo = je + (tmp / 3 - 1);
-                  io = ie + (tmp % 3 - 1);
-                  int dummy;
-                  GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
-                }
-                if((io > -1 && io < elementNodesPerDir[0]) &&
-                   (jo > -1 && jo < elementNodesPerDir[1]) &&
-                   (ko > -1 && ko < elementNodesPerDir[2])) {
-                  for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
-                    if (jType == 3) {
-                      Aii(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 2) {
-                      Aif(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 1) {
-                      Aie(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 0) {
-                      Aic(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        -stencil[interactingNode*BlkSize + dof1];
-                    }
+        // Based on (ie, je, ke) we detect the type of node we are dealing with
+        GetNodeInfo(ie, je, ke, elementNodesPerDir, &iType, iInd, &orientation);
+        for(LO dof0 = 0; dof0 < BlkSize; ++dof0) {
+          // Compute the dof index for each dof at point (ie, je, ke)
+          idof = ((elemInds[2]*coarseRate[2] + ke)*lFineNodesPerDir[1]*lFineNodesPerDir[0]
+                  + (elemInds[1]*coarseRate[1] + je)*lFineNodesPerDir[0]
+                  + elemInds[0]*coarseRate[0] + ie)*BlkSize + dof0;
+          Aghosted->getLocalRowView(idof, rowIndices, rowValues);
+          FormatStencil(BlkSize, ghostInterface, ie, je, ke, rowValues,
+                        elementNodesPerDir, collapseFlags, stencilType, stencil);
+          LO io, jo, ko;
+          if(iType == 3) {// interior node, no stencil collapse needed
+            for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
+              // Find (if, jf, kf) the indices associated with the interacting node
+              ko = ke + (interactingNode / 9 - 1);
+              {
+                LO tmp = interactingNode % 9;
+                jo = je + (tmp / 3 - 1);
+                io = ie + (tmp % 3 - 1);
+                int dummy;
+                GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
+              }
+              if((io > -1 && io < elementNodesPerDir[0]) &&
+                 (jo > -1 && jo < elementNodesPerDir[1]) &&
+                 (ko > -1 && ko < elementNodesPerDir[2])) {
+                for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
+                  if (jType == 3) {
+                    Aii(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 2) {
+                    Aif(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 1) {
+                    Aie(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 0) {
+                    Aic(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      -stencil[interactingNode*BlkSize + dof1];
                   }
                 }
               }
-            } else if(iType == 2) {// Face node, collapse stencil along face normal (*orientation)
-              CollapseStencil(2, orientation, collapseFlags, stencil);
-              for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
-                // Find (if, jf, kf) the indices associated with the interacting node
-                ko = ke + (interactingNode / 9 - 1);
-                {
-                  LO tmp = interactingNode % 9;
-                  jo = je + (tmp / 3 - 1);
-                  io = ie + (tmp % 3 - 1);
-                  int dummy;
-                  GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
-                }
-                if((io > -1 && io < elementNodesPerDir[0]) &&
-                   (jo > -1 && jo < elementNodesPerDir[1]) &&
-                   (ko > -1 && ko < elementNodesPerDir[2])) {
-                  for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
-                    if(jType == 2) {
-                      Aff(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 1) {
-                      Afe(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 0) {
-                      Afc(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        -stencil[interactingNode*BlkSize + dof1];
-                    }
+            }
+          } else if(iType == 2) {// Face node, collapse stencil along face normal (*orientation)
+            CollapseStencil(2, orientation, collapseFlags, stencil);
+            for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
+              // Find (if, jf, kf) the indices associated with the interacting node
+              ko = ke + (interactingNode / 9 - 1);
+              {
+                LO tmp = interactingNode % 9;
+                jo = je + (tmp / 3 - 1);
+                io = ie + (tmp % 3 - 1);
+                int dummy;
+                GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
+              }
+              if((io > -1 && io < elementNodesPerDir[0]) &&
+                 (jo > -1 && jo < elementNodesPerDir[1]) &&
+                 (ko > -1 && ko < elementNodesPerDir[2])) {
+                for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
+                  if(jType == 2) {
+                    Aff(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 1) {
+                    Afe(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 0) {
+                    Afc(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      -stencil[interactingNode*BlkSize + dof1];
                   }
                 }
               }
-            } else if(iType == 1) {// Edge node, collapse stencil perpendicular to edge direction
-              CollapseStencil(1, orientation, collapseFlags, stencil);
-              for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
-                // Find (if, jf, kf) the indices associated with the interacting node
-                ko = ke + (interactingNode / 9 - 1);
-                {
-                  LO tmp = interactingNode % 9;
-                  jo = je + (tmp / 3 - 1);
-                  io = ie + (tmp % 3 - 1);
-                  int dummy;
-                  GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
-                }
-                if((io > -1 && io < elementNodesPerDir[0]) &&
-                   (jo > -1 && jo < elementNodesPerDir[1]) &&
-                   (ko > -1 && ko < elementNodesPerDir[2])) {
-                  for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
-                    if(jType == 1) {
-                      Aee(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        stencil[interactingNode*BlkSize + dof1];
-                    } else if(jType == 0) {
-                      Aec(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
-                        -stencil[interactingNode*BlkSize + dof1];
-                    }
-                  } // Check if interacting node is in element or not
-                } // Pc is the identity so no need to treat iType == 0
-              } // Loop over interacting nodes within a row
-            } // Check for current node type
-          } // Loop over degrees of freedom associated to a given node
-        } // Loop over i
-      } // Loop over j
-    } // Loop over k
+            }
+          } else if(iType == 1) {// Edge node, collapse stencil perpendicular to edge direction
+            CollapseStencil(1, orientation, collapseFlags, stencil);
+            for(LO interactingNode = 0; interactingNode < 27; ++interactingNode) {
+              // Find (if, jf, kf) the indices associated with the interacting node
+              ko = ke + (interactingNode / 9 - 1);
+              {
+                LO tmp = interactingNode % 9;
+                jo = je + (tmp / 3 - 1);
+                io = ie + (tmp % 3 - 1);
+                int dummy;
+                GetNodeInfo(io, jo, ko, elementNodesPerDir, &jType, jInd, &dummy);
+              }
+              if((io > -1 && io < elementNodesPerDir[0]) &&
+                 (jo > -1 && jo < elementNodesPerDir[1]) &&
+                 (ko > -1 && ko < elementNodesPerDir[2])) {
+                for(LO dof1 = 0; dof1 < BlkSize; ++dof1) {
+                  if(jType == 1) {
+                    Aee(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      stencil[interactingNode*BlkSize + dof1];
+                  } else if(jType == 0) {
+                    Aec(iInd*BlkSize + dof0, jInd*BlkSize + dof1) =
+                      -stencil[interactingNode*BlkSize + dof1];
+                  }
+                } // Check if interacting node is in element or not
+              } // Pc is the identity so no need to treat iType == 0
+            } // Loop over interacting nodes within a row
+          } // Check for current node type
+        } // Loop over degrees of freedom associated to a given node
+    }
 
     // Compute the projection operators for edge and interior nodes
     //
@@ -2025,7 +2032,181 @@ namespace MueLu {
     ke = (index - (Nx*je) - ie) / (Nx*Ny);
   }
 
+  template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
+  ExtractFromLocal(const Teuchos::SerialDenseMatrix<LO,SC> Pi, 
+                   const Teuchos::SerialDenseMatrix<LO,SC> Pf, const
+                   Teuchos::SerialDenseMatrix<LO,SC> Pe, LO numNodesInElement,
+                   const Array<LO> elementNodesPerDir, const Array<LO>
+                   connectivity, const Array<LO> lFineNodesPerDir, const int
+                   numDimensions, const Array<LO> coarseRate, const Array<LO>
+                   myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
+                   const Array<LO> elemInds, const LO BlkSize, const int nnzPerCoarseNode,
+                   const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy, 
+                   const Array<LO> lCoarseNodesPerDir,
+                   ArrayView<size_t>& ia, ArrayView<LO>& ja, ArrayView<SC>& val)
+  const {
+    Array<LO> lNodeLIDs(numNodesInElement);
+    Array<LO> lNodeTuple(3), nodeInd(3);
+    Array<LO> glElementRefTuple(3);
+    Array<LO> glElementRefTupleCG(3), glElementCoarseNodeCG(8);
+    LO numCoarseNodesInElement = connectivity.size();
+    for(LO nodeIdx : connectivity) {
+        GetIJKfromIndex(nodeIdx, lFineNodesPerDir, nodeInd[0], nodeInd[1], nodeInd[2]);
+        int stencilLength = 0;
+        if((nodeInd[0] == 0 || nodeInd[0] == elementNodesPerDir[0] - 1) &&
+           (nodeInd[1] == 0 || nodeInd[1] == elementNodesPerDir[1] - 1) &&
+           (nodeInd[2] == 0 || nodeInd[2] == elementNodesPerDir[2] - 1)) {
+          stencilLength = 1;
+        } else {
+          stencilLength = std::pow(2, numDimensions);
+        }
+        LO nodeElementInd = nodeInd[2]*elementNodesPerDir[1]*elementNodesPerDir[1]
+          + nodeInd[1]*elementNodesPerDir[0] + nodeInd[0];
+        for(int dim = 0; dim < 3; ++dim) {
+          lNodeTuple[dim] = glElementRefTuple[dim] - myOffset[dim] + nodeInd[dim];
+        }
+        if(lNodeTuple[0] < 0 || lNodeTuple[1] < 0 || lNodeTuple[2] < 0 ||
+           lNodeTuple[0] > lFineNodesPerDir[0] - 1 ||
+           lNodeTuple[1] > lFineNodesPerDir[1] - 1 ||
+           lNodeTuple[2] > lFineNodesPerDir[2] - 1) {
+          // This flags the ghosts nodes used for prolongator calculation but for which
+          // we do not own the row, hence we won't fill these values on this rank.
+          lNodeLIDs[nodeElementInd] = -1;
+        } else if ((nodeInd[0] == 0 && elemInds[0] !=0) ||
+                   (nodeInd[1] == 0 && elemInds[1] !=0) ||
+                   (nodeInd[2] == 0 && elemInds[2] !=0)) {
+          // This flags nodes that are owned but common to two coarse elements and that
+          // were already filled by another element, we don't want to fill them twice so
+          // we skip them
+          lNodeLIDs[nodeElementInd] = -2;
+        } else {
+          // The remaining nodes are locally owned and we need to fill the coresponding
+          // rows of the prolongator
 
+          // First we need to find which row needs to be filled
+          lNodeLIDs[nodeElementInd] = lNodeTuple[2]*lFineNodesPerDir[1]*lFineNodesPerDir[0]
+            + lNodeTuple[1]*lFineNodesPerDir[0] + lNodeTuple[0];
+
+          // We also compute the row offset using arithmetic to ensure that we can loop
+          // easily over the nodes in a macro-element as well as facilitate on-node
+          // parallelization. The node serial code could be rewritten with two loops over
+          // the local part of the mesh to avoid the costly integer divisions...
+          Array<LO> refCoarsePointTuple(3);
+          for(int dim = 2; dim > -1; --dim) {
+            if(dim == 0) {
+              refCoarsePointTuple[dim] = (lNodeTuple[dim] + myOffset[dim]) / coarseRate[dim];
+              if(myOffset[dim] == 0) {
+                ++refCoarsePointTuple[dim];
+              }
+            } else {
+              refCoarsePointTuple[dim] =
+                std::ceil(static_cast<double>(lNodeTuple[dim] + myOffset[dim])
+                          / coarseRate[dim]);
+            }
+            if((lNodeTuple[dim] + myOffset[dim]) % coarseRate[dim] > 0) {break;}
+          }
+          const LO numCoarsePoints = refCoarsePointTuple[0]
+            + refCoarsePointTuple[1]*lCoarseNodesPerDir[0]
+            + refCoarsePointTuple[2]*lCoarseNodesPerDir[1]*lCoarseNodesPerDir[0];
+          const LO numFinePoints = lNodeLIDs[nodeElementInd] + 1;
+
+          // The below formula computes the rowPtr for row 'n+BlkSize' and we are about to
+          // fill row 'n' to 'n+BlkSize'.
+          size_t rowPtr = (numFinePoints - numCoarsePoints)*BlkSize
+            *numCoarseNodesInElement*nnzPerCoarseNode + numCoarsePoints*BlkSize;
+          if(dofType[nodeElementInd*BlkSize] == 0) {
+            // Check if current node is a coarse point
+            rowPtr = rowPtr - BlkSize;
+          } else {
+            rowPtr = rowPtr - BlkSize*numCoarseNodesInElement*nnzPerCoarseNode;
+          }
+
+        for(int dof = 0; dof < BlkSize; ++dof) {
+
+          // Now we loop over the stencil and fill the column indices and row values
+          int cornerInd = 0;
+          switch(dofType[nodeElementInd*BlkSize + dof]) {
+          case 0: // Corner node
+            if(nodeInd[2] == elementNodesPerDir[2] - 1) {cornerInd += 4;}
+            if(nodeInd[1] == elementNodesPerDir[1] - 1) {cornerInd += 2;}
+            if(nodeInd[0] == elementNodesPerDir[0] - 1) {cornerInd += 1;}
+            ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1] = rowPtr + dof + 1;
+            ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[cornerInd]]*BlkSize + dof;
+            val[rowPtr + dof] = 1.0;
+            break;
+
+          case 1: // Edge node
+            ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+              = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+            for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+              if(blockStrategy == "coupled") {
+                for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                  size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                    + ind1*BlkSize + ind2;
+                  ja[lRowPtr]  = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
+                                    ind1*BlkSize + ind2);
+                }
+              } else if(blockStrategy == "uncoupled") {
+                size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                  + ind1;
+                ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
+                                  ind1*BlkSize + dof);
+              }
+            }
+            break;
+
+          case 2: // Face node
+            ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+              = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+            for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+              if(blockStrategy == "coupled") {
+                for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                  size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                    + ind1*BlkSize + ind2;
+                  ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
+                                    ind1*BlkSize + ind2);
+                }
+              } else if(blockStrategy == "uncoupled") {
+                size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                  + ind1;
+                // ja [lRowPtr] = colGIDs[glElementCoarseNodeCG[ind1]*BlkSize + dof];
+                ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
+                                  ind1*BlkSize + dof);
+              }
+            }
+            break;
+
+          case 3: // Interior node
+            ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
+              = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+            for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
+              if(blockStrategy == "coupled") {
+                for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
+                  size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                    + ind1*BlkSize + ind2;
+                  ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  val[lRowPtr] = Pi(lDofInd[nodeElementInd*BlkSize + dof],
+                                    ind1*BlkSize + ind2);
+                }
+              } else if(blockStrategy == "uncoupled") {
+                size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
+                  + ind1;
+                ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                val[lRowPtr] = Pi(lDofInd[nodeElementInd*BlkSize + dof],
+                                  ind1*BlkSize + dof);
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::GetNodeInfo(
                         const LO ie, const LO je, const LO ke,

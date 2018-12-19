@@ -702,11 +702,11 @@ namespace MueLuTests {
 
       Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
       Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-      factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
-                                         lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
-                                         gIndices, lCoarseNodesPerDir, ghostInterface,
-                                         elementFlags, "reduced", "coupled", elementNodesPerDir,
-                                         numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
+      //factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
+      //                                   lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
+      //                                   gIndices, lCoarseNodesPerDir, ghostInterface,
+      //                                   elementFlags, "reduced", "coupled", elementNodesPerDir,
+      //                                   numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
 
       elemInds[0] = 0;
       elemInds[1] = 0;
