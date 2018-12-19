@@ -372,7 +372,7 @@ namespace MueLu {
       ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity,
                        lFineNodesPerDir, numDimensions, coarseRate, myOffset, dofType,
                        lDofInd, elemInds, BlkSize, nnzPerCoarseNode, ghostedCoarseNodes,
-                        blockStrategy, lCoarseNodesPerDir, ia, ja, val);
+                       blockStrategy, lCoarseNodesPerDir, ia, ja, val);
     }
   }
 
@@ -1653,8 +1653,11 @@ namespace MueLu {
     //           we might want to fuse the first three loops and do integer arithmetic
     //           to have more optimization during compilation...
     LO ie, je, ke;
-    for(LO nodeIdx : connectivity){
-        GetIJKfromIndex(nodeIdx, elementNodesPerDir, ie, je, ke);
+    for(size_t i = 0; i < connectivity.size(); i++){
+        LO nodeIdx = connectivity[i];
+        //std::cout << "nodeIdx = " << nodeIdx << std::endl;
+        GetIJKfromIndex(nodeIdx, lFineNodesPerDir, ie, je, ke);
+        //std::cout << "ie= " << ie << " je = " << je << " ke = " << ke << std::endl;
         collapseFlags[0] = 0; collapseFlags[1] = 0; collapseFlags[2] = 0;
         if((elementFlags[0] == 1 || elementFlags[0] == 3) && ie == 0) {
           collapseFlags[0] += 1;
@@ -2051,8 +2054,13 @@ namespace MueLu {
     Array<LO> glElementRefTuple(3);
     Array<LO> glElementRefTupleCG(3), glElementCoarseNodeCG(8);
     LO numCoarseNodesInElement = connectivity.size();
-    for(LO nodeIdx : connectivity) {
+    std::cout << "Start ExtractFromLocal" << std::endl;
+    std::cout << "EnodesPerDir[0]= " << elementNodesPerDir[0] << "EnodesPerDir[1]= " << elementNodesPerDir[1] << "EnodesPerDir[2]= " << elementNodesPerDir[2] << std::endl;
+    for(size_t i = 0; i < connectivity.size(); i++){
+        LO nodeIdx = connectivity[i];
+        std::cout << "nodeIdx = " << nodeIdx << std::endl;
         GetIJKfromIndex(nodeIdx, lFineNodesPerDir, nodeInd[0], nodeInd[1], nodeInd[2]);
+        std::cout << "nodeInd[0]= " << nodeInd[0] << " nodeInd[1] = " << nodeInd[1] << " nodeInd[2] = " << nodeInd[2] << std::endl;
         int stencilLength = 0;
         if((nodeInd[0] == 0 || nodeInd[0] == elementNodesPerDir[0] - 1) &&
            (nodeInd[1] == 0 || nodeInd[1] == elementNodesPerDir[1] - 1) &&

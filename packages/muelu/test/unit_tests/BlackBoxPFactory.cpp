@@ -740,11 +740,11 @@ namespace MueLuTests {
       numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
 
       dofType.resize(numNodesInElement*BlkSize); lDofInd.resize(numNodesInElement*BlkSize);
-      factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
-                                         lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
-                                         gIndices, lCoarseNodesPerDir, ghostInterface,
-                                         elementFlags, "reduced", "coupled", elementNodesPerDir,
-                                         numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
+      //factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
+      //                                   lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
+      //                                   gIndices, lCoarseNodesPerDir, ghostInterface,
+      //                                   elementFlags, "reduced", "coupled", elementNodesPerDir,
+      //                                   numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
     }
 
   } // Prolongator
