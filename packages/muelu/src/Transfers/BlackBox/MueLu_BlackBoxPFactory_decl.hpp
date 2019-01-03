@@ -154,9 +154,11 @@ namespace MueLu {
     void BuildP(Level& fineLevel, Level& coarseLevel) const;
     void BuildPCrs(Level &fineLevel, RCP<CrsGraph>& connectivityGraph,
                    RCP<BlackBoxConnectivity>& coarseElemGraph) const;
-    void GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir, 
+    void GetIJKfromIndex(const LO index, const Array<LO> lFineNodesPerDir,
                          LO& ie, LO& je, LO& ke) const;
-
+    void GetCoordinates(const Array<LO> lFineNodesPerDir, const Array<GO> gFineNodesPerDir,
+                        const LO numDimensions, RCP<const Teuchos::Comm<int> >& comm, const Xpetra::UnderlyingLib lib,
+                        RCP<Xpetra::MultiVector<double,LocalOrdinal,GlobalOrdinal,Node> >&Coordinates) const;
 
     //@}
 
@@ -206,9 +208,9 @@ namespace MueLu {
                              Array<LO>& lDofInd) const;
 
     void CollapseStencil(const int type, const int orientation, const int collapseFlags[3],
-                         Array<SC>& stencil) const ;
+                         Array<SC>& stencil) const;
 
-     void ExtractFromLocal(const Teuchos::SerialDenseMatrix<LO,SC> Pi, 
+     void ExtractFromLocal(const Teuchos::SerialDenseMatrix<LO,SC> Pi,
                            const Teuchos::SerialDenseMatrix<LO,SC> Pf, const
                            Teuchos::SerialDenseMatrix<LO,SC> Pe, LO numNodesInElement,
                            const Array<LO> elementNodesPerDir, const Array<LO>
@@ -216,7 +218,7 @@ namespace MueLu {
                            numDimensions, const Array<LO> coarseRate, const Array<LO>
                            myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
                            const Array<LO> elemInds, const LO BlkSize, const int nnzPerCoarseNode,
-                           const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy, 
+                           const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy,
                            const Array<LO> lCoarseNodesPerDir,
                            ArrayView<size_t>& ia, ArrayView<LO>& ja, ArrayView<SC>& val) const;
 
