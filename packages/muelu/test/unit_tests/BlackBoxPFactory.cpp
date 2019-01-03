@@ -990,7 +990,8 @@ namespace MueLuTests {
       RCP<Xpetra::MultiVector<double,LO,GO,NO>> BBCoordinates;
       myBBPFact->GetCoordinates(lFineNodesPerDir, gFineNodesPerDir, 3, comm, lib, BBCoordinates);
       level.Set("Coordinates", BBCoordinates);  // set fine level coordinates
-      level.Set("gNodesPerDim", gFineNodesPerDir);
+      level.Set("gFineNodesPerDir", gFineNodesPerDir);
+      level.Set("lFineNodesPerDir", lFineNodesPerDir);
       myBBPFact->BuildPCrs(level, prolongatorGraph, BBConnectivity);
       LO BlkSize = 1;
       //Array<LO> elementNodesPerDir(3);

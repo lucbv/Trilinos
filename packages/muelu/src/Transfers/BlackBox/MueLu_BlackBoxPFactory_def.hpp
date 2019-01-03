@@ -106,7 +106,7 @@ namespace MueLu {
     const {
     Input(fineLevel, "A");
     Input(fineLevel, "Nullspace");
-    //Input(fineLevel, "Coordinates");
+    Input(fineLevel, "Coordinates");
     Input(fineLevel, "prolongatorGraph");
     Input(fineLevel, "BlackBoxConnectivity");
     // Request the global number of nodes per dimensions
@@ -147,8 +147,11 @@ namespace MueLu {
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   BuildPCrs(Level& fineLevel, RCP<CrsGraph>& prolongatorGraph,
             RCP<BlackBoxConnectivity>& BBConnectivity) const{
-     // Get parameter list
+    std::cout << "Entering BuildPCrs" << std::endl;
+    // Get parameter list
     const ParameterList& pL = GetParameterList();
+    RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
+      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(fineLevel, "Coordinates");
     RCP<Matrix>      A             = Get< RCP<Matrix> >      (fineLevel, "A");
     //TODO: get dimension
     LO numDimensions  = 3;
@@ -244,12 +247,12 @@ namespace MueLu {
 
     // This struct stores PIDs, LIDs and GIDs on the fine mesh and GIDs on the coarse mesh.
     RCP<NodesIDs> ghostedCoarseNodes = rcp(new NodesIDs{});
-    //TODO: Use this when we have coordinates
-    //GetGeometricData(coordinates, coarseRate, gFineNodesPerDir, lFineNodesPerDir, BlkSize,// inputs
-    //                 gIndices, myOffset, ghostInterface, endRate, gCoarseNodesPerDir,     // outputs
-    //                 lCoarseNodesPerDir, glCoarseNodesPerDir, ghostGIDs, coarseNodesGIDs, colGIDs,
-    //                 gNumCoarseNodes, lNumCoarseNodes, coarseNodes, boundaryFlags,
-    //                 ghostedCoarseNodes);
+    //GetCoordinates(lFineNodesPerDir, gFineNodesPerDir, 3, comm, lib, coordinates);
+    GetGeometricData(coordinates, coarseRate, gFineNodesPerDir, lFineNodesPerDir, BlkSize,// inputs
+                     gIndices, myOffset, ghostInterface, endRate, gCoarseNodesPerDir,     // outputs
+                     lCoarseNodesPerDir, glCoarseNodesPerDir, ghostGIDs, coarseNodesGIDs, colGIDs,
+                     gNumCoarseNodes, lNumCoarseNodes, coarseNodes, boundaryFlags,
+                     ghostedCoarseNodes);
 
     // Unamalgamating map from prolongator, this should go away after small refactor of structured
     // aggregation factory to have it construct the true prolongatorGraph.
@@ -797,10 +800,10 @@ namespace MueLu {
           // Compute the element prolongator
           Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
           Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-          //ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, numDimensions,
-          //                    lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
-          //                    blockStrategy, elementNodesPerDir, numNodesInElement,
-          //                    Pi, Pf, Pe, dofType, lDofInd);
+          ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, numDimensions,
+                              lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
+                              blockStrategy, elementNodesPerDir, numNodesInElement,
+                              Pi, Pf, Pe, dofType, lDofInd);
 
           // Find ghosted LID associated with nodes in the element and eventually which of these
           // nodes are ghosts, this information is used to fill the local prolongator.
@@ -1617,6 +1620,7 @@ namespace MueLu {
     // group indexing. The groups are the following: corner, edge, face and interior
     // nodes. We uses these groups to operate on the dense matrices but need to
     // store the nodes in their original order after groupd operations are completed.
+    std::cout << "Entering ComputeLocalEntries" << std::endl;
     LO numInteriorNodes = 0, numFaceNodes = 0, numEdgeNodes = 0, numCornerNodes = 8;
     numInteriorNodes = (elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
       *(elementNodesPerDir[2] - 2);
