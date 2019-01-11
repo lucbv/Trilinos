@@ -348,18 +348,6 @@ namespace MueLu {
     ia[0] = 0;
 
     LO numCoarseElements = 1;
-    Array<LO> lCoarseElementsPerDir(3);
-    for(LO dim = 0; dim < numDimensions; ++dim) {
-      lCoarseElementsPerDir[dim] = lCoarseNodesPerDir[dim];
-      if(ghostInterface[2*dim]) {++lCoarseElementsPerDir[dim];}
-      if(!ghostInterface[2*dim+1]) {--lCoarseElementsPerDir[dim];}
-      numCoarseElements = numCoarseElements*lCoarseElementsPerDir[dim];
-    }
-
-    for(LO dim = numDimensions; dim < 3; ++dim) {
-      lCoarseElementsPerDir[dim] = 1;
-    }
-
 
     // Loop over the coarse elements using connectivity
     Array<int> elementFlags(3);
@@ -369,11 +357,13 @@ namespace MueLu {
     const int nnzPerCoarseNode = (blockStrategy == "coupled") ? BlkSize : 1;
     const int numRowsPerPoint = BlkSize;
     Array<typename BlackBoxConnectivity::elementEntry> elementsData = BBConnectivity->elementsData;
+    Array<LO> connectivity0 = elementsData[0].connectivity_;
     for (size_t i = 0; i < elementsData.size(); ++i) {
       typename BlackBoxConnectivity::elementEntry element = elementsData[i];
       Array<LO> connectivity = element.connectivity_;
       elementFlags = element.isMeshEdge_;
       elementNodesPerDir = element.dimensions_;
+      std::cout << "elementNodesPerDir= " << elementNodesPerDir << std::endl;
       LO numNodesInElement = connectivity.size();
       std::cout << "numNodesInElement " << numNodesInElement << std::endl;
       // elemLabel should be the number of it's lower right corner, which
@@ -384,68 +374,16 @@ namespace MueLu {
       GetIJKfromIndex(elemLabel, lFineNodesPerDir, ie, je, ke);
       std::cout << "ie = " << ie << " je = " << je << " ke = " << ke << std::endl;
       elemInds[0] = ie; elemInds[1] = je; elemInds[2] = ke;
-      for(int dim = 0; dim < 3; ++dim) {
-        // Detect boundary conditions on the element and set corresponding flags.
-        if(elemInds[dim] == 0 && elemInds[dim] == lCoarseElementsPerDir[dim] - 1) {
-          elementFlags[dim] = boundaryFlags[dim];
-        } else if(elemInds[dim] == 0 && (boundaryFlags[dim] == 1 || boundaryFlags[dim] == 3)) {
-          elementFlags[dim] += 1;
-        } else if((elemInds[dim] == lCoarseElementsPerDir[dim] - 1)
-                  && (boundaryFlags[dim] == 2 || boundaryFlags[dim] == 3)) {
-          elementFlags[dim] += 2;
-        } else {
-          elementFlags[dim] = 0;
-        }
-
-        // Compute the number of nodes in the current element.
-        if(dim < numDimensions) {
-          if((elemInds[dim] == lCoarseElementsPerDir[dim])
-             && (gIndices[dim] + lFineNodesPerDir[dim] == gFineNodesPerDir[dim])) {
-            elementNodesPerDir[dim] = endRate[dim] + 1;
-          } else {
-            elementNodesPerDir[dim] = coarseRate[dim] + 1;
-          }
-        } else {
-          elementNodesPerDir[dim] = 1;
-        }
-
-        // Get the lowest tuple of the element using the ghosted local coordinate system
-        glElementRefTuple[dim]   = elemInds[dim]*coarseRate[dim];
-        glElementRefTupleCG[dim] = elemInds[dim];
-      }
-
-      // Now get the column map indices corresponding to the dofs associated with the current
-      // element's coarse nodes.
-      for(typename Array<LO>::size_type elem = 0; elem < glElementCoarseNodeCG.size(); ++elem) {
-        glElementCoarseNodeCG[elem]
-          = glElementRefTupleCG[2]*glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0]
-             + glElementRefTupleCG[1]*glCoarseNodesPerDir[0] + glElementRefTupleCG[0];
-      }
-      glElementCoarseNodeCG[4] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[5] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[6] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[7] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
-
-      glElementCoarseNodeCG[2] += glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[3] += glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[6] += glCoarseNodesPerDir[0];
-      glElementCoarseNodeCG[7] += glCoarseNodesPerDir[0];
-
-      glElementCoarseNodeCG[1] += 1;
-      glElementCoarseNodeCG[3] += 1;
-      glElementCoarseNodeCG[5] += 1;
-      glElementCoarseNodeCG[7] += 1;
-
       Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
       // Compute Pi, Pe, Pf for the current coarse element
       Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
       ComputeLocalEntries(Aghosted, coarseRate, endRate, BlkSize, elemInds,
-                          numDimensions, lFineNodesPerDir, connectivity, ghostInterface,
+                          numDimensions, lFineNodesPerDir, connectivity0, ghostInterface,
                           elementFlags, stencilType, blockStrategy, elementNodesPerDir,
                           numNodesInElement, Pi, Pf, Pe, dofType, lDofInd);
       std::cout << "Exit ComputeLocalEntries" << std::endl;
       // Move data into arrayviews to be fanned out to global P
-      ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity,
+      ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity0,
                        lFineNodesPerDir, numDimensions, coarseRate, glElementCoarseNodeCG, 
                        glElementRefTuple, myOffset, dofType, lDofInd, elemInds, BlkSize, 
                        nnzPerCoarseNode, ghostedCoarseNodes, blockStrategy, lCoarseNodesPerDir, 
@@ -1699,13 +1637,13 @@ namespace MueLu {
     std::cout << "Entering ComputeLocalEntries" << std::endl;
     std::cout << "----------------------------------------------------------" << std::endl;
     LO numInteriorNodes = 0, numFaceNodes = 0, numEdgeNodes = 0, numCornerNodes = 8;
-    numInteriorNodes = 1;//(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
-      //*(elementNodesPerDir[2] - 2);
-    numFaceNodes = 6;//2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
-      //+ 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[2] - 2)
-      //+ 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
-    numEdgeNodes = 12;//4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
-      //+ 4*(elementNodesPerDir[2] - 2);
+    numInteriorNodes = (elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      *(elementNodesPerDir[2] - 2);
+    numFaceNodes = 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      + 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[2] - 2)
+      + 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
+    numEdgeNodes = 4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
+      + 4*(elementNodesPerDir[2] - 2);
     std::cout << "numInteriorNodes: " << numInteriorNodes << " numFaceNodes: " << numFaceNodes << " numEdgeNodes: " << numEdgeNodes << std::endl;
     // Diagonal blocks
     Teuchos::SerialDenseMatrix<LO,SC> Aii(BlkSize*numInteriorNodes, BlkSize*numInteriorNodes);
@@ -2218,7 +2156,7 @@ namespace MueLu {
     std::cout << "----------------------------------------------------------" << std::endl;
     Array<LO> lNodeLIDs(numNodesInElement);
     Array<LO> lNodeTuple(3), nodeInd(3);
-    LO numCoarseNodesInElement = connectivity.size();
+    LO numCoarseNodesInElement = std::pow(2, numDimensions);
     std::cout << "EnodesPerDir[0]= " << elementNodesPerDir[0] << " EnodesPerDir[1]= " << elementNodesPerDir[1] << " EnodesPerDir[2]= " << elementNodesPerDir[2] << std::endl;
     for(size_t i = 0; i < connectivity.size(); i++){
       LO nodeIdx = connectivity[i];
@@ -2282,6 +2220,7 @@ namespace MueLu {
           + refCoarsePointTuple[1]*lCoarseNodesPerDir[0]
           + refCoarsePointTuple[2]*lCoarseNodesPerDir[1]*lCoarseNodesPerDir[0];
         const LO numFinePoints = lNodeLIDs[nodeElementInd] + 1;
+        std::cout << "numFinePoints= " << numFinePoints << std::endl;
 
         // The below formula computes the rowPtr for row 'n+BlkSize' and we are about to
         // fill row 'n' to 'n+BlkSize'.
@@ -2293,6 +2232,8 @@ namespace MueLu {
         } else {
           rowPtr = rowPtr - BlkSize*numCoarseNodesInElement*nnzPerCoarseNode;
         }
+
+        std::cout << "rowPtr= " << rowPtr << std::endl;
 
         for(int dof = 0; dof < BlkSize; ++dof) {
 
@@ -2313,23 +2254,23 @@ namespace MueLu {
             std::cout << "edge: nodeElementInd= " << nodeElementInd << " dof " << dof << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
-            std::cout <<  "lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]:" << lNodeLIDs[nodeElementInd]*BlkSize + dof + 1<< std::endl;
+            //std::cout <<  "lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]:" << lNodeLIDs[nodeElementInd]*BlkSize + dof + 1<< std::endl;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
               if(blockStrategy == "coupled") {
                 for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
                   size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                     + ind1*BlkSize + ind2;
-                  std::cout << "lRowPtr: " << lRowPtr << "ja: " << ja << std::endl;
-                  ja[lRowPtr]  = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  //std::cout << "lRowPtr: " << lRowPtr << "ja: " << ja << std::endl;
+                  //ja[lRowPtr]  = ghostedCoarseNodes->colInds[ind]*BlkSize + ind2;
                   // Ari: Should be dof*BlkSize? Not sure what's going on here
-                  std::cout << "lDofInd[nodeElementInd]:" << lDofInd[nodeElementInd] << std::endl;
+                  //std::cout << "lDofInd[nodeElementInd*BlkSize + dof]:" << lDofInd[nodeElementInd *BlkSize + dof] << std::endl;
                   val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
                                     ind1*BlkSize + ind2);
                 }
               } else if(blockStrategy == "uncoupled") {
                 size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                   + ind1;
-                ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
+                //ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + dof;
                 val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
                                   ind1*BlkSize + dof);
               }
@@ -2345,7 +2286,7 @@ namespace MueLu {
                 for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
                   size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                     + ind1*BlkSize + ind2;
-                  ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  //ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
                   val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
                                     ind1*BlkSize + ind2);
                 }
@@ -2369,7 +2310,7 @@ namespace MueLu {
                 for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
                   size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                     + ind1*BlkSize + ind2;
-                  ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  //ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
                   val[lRowPtr] = Pi(lDofInd[nodeElementInd*BlkSize + dof],
                                     ind1*BlkSize + ind2);
                 }
