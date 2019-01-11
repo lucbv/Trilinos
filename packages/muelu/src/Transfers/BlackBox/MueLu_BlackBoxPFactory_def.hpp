@@ -231,6 +231,9 @@ namespace MueLu {
 
     // Get the strategy for PDE systems
     const std::string blockStrategy = pL.get<std::string>("block strategy");
+    //std::cout << "blockStrategy = " << blockStrategy << std::endl;
+    //const std::string blockStrategy = "uncoupled";
+    std::cout << "blockStrategy = " << blockStrategy << std::endl;
     if(blockStrategy != "coupled" && blockStrategy != "uncoupled") {
       GetOStream(Errors,-1) << " *** block strategy must be set to: coupled or uncoupled, any other "
               "value is trated as an error! *** " << std::endl;
@@ -344,8 +347,20 @@ namespace MueLu {
     ArrayView<SC>     val = valP();
     ia[0] = 0;
 
-
     LO numCoarseElements = 1;
+    Array<LO> lCoarseElementsPerDir(3);
+    for(LO dim = 0; dim < numDimensions; ++dim) {
+      lCoarseElementsPerDir[dim] = lCoarseNodesPerDir[dim];
+      if(ghostInterface[2*dim]) {++lCoarseElementsPerDir[dim];}
+      if(!ghostInterface[2*dim+1]) {--lCoarseElementsPerDir[dim];}
+      numCoarseElements = numCoarseElements*lCoarseElementsPerDir[dim];
+    }
+
+    for(LO dim = numDimensions; dim < 3; ++dim) {
+      lCoarseElementsPerDir[dim] = 1;
+    }
+
+
     // Loop over the coarse elements using connectivity
     Array<int> elementFlags(3);
     Array<LO> elemInds(3), elementNodesPerDir(3), glElementRefTuple(3);
@@ -369,6 +384,58 @@ namespace MueLu {
       GetIJKfromIndex(elemLabel, lFineNodesPerDir, ie, je, ke);
       std::cout << "ie = " << ie << " je = " << je << " ke = " << ke << std::endl;
       elemInds[0] = ie; elemInds[1] = je; elemInds[2] = ke;
+      for(int dim = 0; dim < 3; ++dim) {
+        // Detect boundary conditions on the element and set corresponding flags.
+        if(elemInds[dim] == 0 && elemInds[dim] == lCoarseElementsPerDir[dim] - 1) {
+          elementFlags[dim] = boundaryFlags[dim];
+        } else if(elemInds[dim] == 0 && (boundaryFlags[dim] == 1 || boundaryFlags[dim] == 3)) {
+          elementFlags[dim] += 1;
+        } else if((elemInds[dim] == lCoarseElementsPerDir[dim] - 1)
+                  && (boundaryFlags[dim] == 2 || boundaryFlags[dim] == 3)) {
+          elementFlags[dim] += 2;
+        } else {
+          elementFlags[dim] = 0;
+        }
+
+        // Compute the number of nodes in the current element.
+        if(dim < numDimensions) {
+          if((elemInds[dim] == lCoarseElementsPerDir[dim])
+             && (gIndices[dim] + lFineNodesPerDir[dim] == gFineNodesPerDir[dim])) {
+            elementNodesPerDir[dim] = endRate[dim] + 1;
+          } else {
+            elementNodesPerDir[dim] = coarseRate[dim] + 1;
+          }
+        } else {
+          elementNodesPerDir[dim] = 1;
+        }
+
+        // Get the lowest tuple of the element using the ghosted local coordinate system
+        glElementRefTuple[dim]   = elemInds[dim]*coarseRate[dim];
+        glElementRefTupleCG[dim] = elemInds[dim];
+      }
+
+      // Now get the column map indices corresponding to the dofs associated with the current
+      // element's coarse nodes.
+      for(typename Array<LO>::size_type elem = 0; elem < glElementCoarseNodeCG.size(); ++elem) {
+        glElementCoarseNodeCG[elem]
+          = glElementRefTupleCG[2]*glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0]
+             + glElementRefTupleCG[1]*glCoarseNodesPerDir[0] + glElementRefTupleCG[0];
+      }
+      glElementCoarseNodeCG[4] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[5] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[6] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[7] += glCoarseNodesPerDir[1]*glCoarseNodesPerDir[0];
+
+      glElementCoarseNodeCG[2] += glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[3] += glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[6] += glCoarseNodesPerDir[0];
+      glElementCoarseNodeCG[7] += glCoarseNodesPerDir[0];
+
+      glElementCoarseNodeCG[1] += 1;
+      glElementCoarseNodeCG[3] += 1;
+      glElementCoarseNodeCG[5] += 1;
+      glElementCoarseNodeCG[7] += 1;
+
       Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
       // Compute Pi, Pe, Pf for the current coarse element
       Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
@@ -379,9 +446,10 @@ namespace MueLu {
       std::cout << "Exit ComputeLocalEntries" << std::endl;
       // Move data into arrayviews to be fanned out to global P
       ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity,
-                       lFineNodesPerDir, numDimensions, coarseRate, myOffset, dofType,
-                       lDofInd, elemInds, BlkSize, nnzPerCoarseNode, ghostedCoarseNodes,
-                       blockStrategy, lCoarseNodesPerDir, ia, ja, val);
+                       lFineNodesPerDir, numDimensions, coarseRate, glElementCoarseNodeCG, 
+                       glElementRefTuple, myOffset, dofType, lDofInd, elemInds, BlkSize, 
+                       nnzPerCoarseNode, ghostedCoarseNodes, blockStrategy, lCoarseNodesPerDir, 
+                       ia, ja, val);
     }
   }
 
@@ -1631,13 +1699,13 @@ namespace MueLu {
     std::cout << "Entering ComputeLocalEntries" << std::endl;
     std::cout << "----------------------------------------------------------" << std::endl;
     LO numInteriorNodes = 0, numFaceNodes = 0, numEdgeNodes = 0, numCornerNodes = 8;
-    numInteriorNodes = (elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
-      *(elementNodesPerDir[2] - 2);
-    numFaceNodes = 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
-      + 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[2] - 2)
-      + 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
-    numEdgeNodes = 4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
-      + 4*(elementNodesPerDir[2] - 2);
+    numInteriorNodes = 1;//(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      //*(elementNodesPerDir[2] - 2);
+    numFaceNodes = 6;//2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[1] - 2)
+      //+ 2*(elementNodesPerDir[0] - 2)*(elementNodesPerDir[2] - 2)
+      //+ 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
+    numEdgeNodes = 12;//4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
+      //+ 4*(elementNodesPerDir[2] - 2);
     std::cout << "numInteriorNodes: " << numInteriorNodes << " numFaceNodes: " << numFaceNodes << " numEdgeNodes: " << numEdgeNodes << std::endl;
     // Diagonal blocks
     Teuchos::SerialDenseMatrix<LO,SC> Aii(BlkSize*numInteriorNodes, BlkSize*numInteriorNodes);
@@ -1672,7 +1740,7 @@ namespace MueLu {
       std::cout << "nodeIdx = " << nodeIdx << std::endl;
       GetIJKfromIndex(nodeIdx, lFineNodesPerDir, ie, je, ke);
       std::cout << "ie= " << ie << " je = " << je << " ke = " << ke << std::endl;
-      // Initialize lDofInd and dofType
+      /******** Initialize lDofInd and dofType ********/
       // Check for corner node
       if((ke == 0 || ke == elementNodesPerDir[2]-1)
          && (je == 0 || je == elementNodesPerDir[1]-1)
@@ -1682,6 +1750,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 0;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countCorner + dof;
+          std::cout << "Corner!"  << std::endl;
         }
         ++countCorner;
 
@@ -1697,6 +1766,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 1;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countEdge + dof;
+          std::cout << "Edge!"  << std::endl;
           if((ke == 0 || ke == elementNodesPerDir[2]-1)
              && (je == 0 || je == elementNodesPerDir[1]-1)) {
             collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
@@ -1733,6 +1803,7 @@ namespace MueLu {
                                  + je*elementNodesPerDir[0] + ie) + dof] = 0;
           }
         }
+        std::cout << "Face!" << std::endl;
         ++countFace;
 
       // Otherwise it is an interior node
@@ -1742,6 +1813,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 3;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countInterior +dof;
+        std::cout << "Interior!" << std::endl;
         }
         ++countInterior;
       }
@@ -1867,6 +1939,7 @@ namespace MueLu {
       } // Loop over degrees of freedom associated to a given node
     }
 
+    std::cout << "countInterior= " << countInterior << " countFace = " << countFace << " countEdge = " << countEdge << " countCorner = "<< countCorner  << std::endl;
     // Compute the projection operators for edge and interior nodes
     //
     //         [P_i] = [A_{ii} & A_{if} & A_{ie}]^{-1} [A_{ic}]
@@ -2132,8 +2205,9 @@ namespace MueLu {
                    Teuchos::SerialDenseMatrix<LO,SC> Pe, LO numNodesInElement,
                    const Array<LO> elementNodesPerDir, const Array<LO>
                    connectivity, const Array<LO> lFineNodesPerDir, const int
-                   numDimensions, const Array<LO> coarseRate, const Array<LO>
-                   myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
+                   numDimensions, const Array<LO> coarseRate, const Array<LO> glElementCoarseNodeCG,
+                   const Array<LO> glElementRefTuple,
+                   const Array<LO> myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
                    const Array<LO> elemInds, const LO BlkSize, const int nnzPerCoarseNode,
                    const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy,
                    const Array<LO> lCoarseNodesPerDir,
@@ -2144,8 +2218,6 @@ namespace MueLu {
     std::cout << "----------------------------------------------------------" << std::endl;
     Array<LO> lNodeLIDs(numNodesInElement);
     Array<LO> lNodeTuple(3), nodeInd(3);
-    Array<LO> glElementRefTuple(3);
-    Array<LO> glElementRefTupleCG(3), glElementCoarseNodeCG(8);
     LO numCoarseNodesInElement = connectivity.size();
     std::cout << "EnodesPerDir[0]= " << elementNodesPerDir[0] << " EnodesPerDir[1]= " << elementNodesPerDir[1] << " EnodesPerDir[2]= " << elementNodesPerDir[2] << std::endl;
     for(size_t i = 0; i < connectivity.size(); i++){
@@ -2161,8 +2233,8 @@ namespace MueLu {
       } else {
         stencilLength = std::pow(2, numDimensions);
       }
-      LO nodeElementInd = nodeInd[2]*elementNodesPerDir[1]*elementNodesPerDir[1]
-        + nodeInd[1]*elementNodesPerDir[0] + nodeInd[0];
+      LO nodeElementInd =nodeInd[2]*elementNodesPerDir[1]*elementNodesPerDir[0]
+                         + nodeInd[1]*elementNodesPerDir[0] + nodeInd[0];
       for(int dim = 0; dim < 3; ++dim) {
         lNodeTuple[dim] = glElementRefTuple[dim] - myOffset[dim] + nodeInd[dim];
       }
@@ -2228,6 +2300,7 @@ namespace MueLu {
           int cornerInd = 0;
           switch(dofType[nodeElementInd*BlkSize + dof]) {
           case 0: // Corner node
+            std::cout << "corner:" << "nodeElementInd" << nodeElementInd << std::endl;
             if(nodeInd[2] == elementNodesPerDir[2] - 1) {cornerInd += 4;}
             if(nodeInd[1] == elementNodesPerDir[1] - 1) {cornerInd += 2;}
             if(nodeInd[0] == elementNodesPerDir[0] - 1) {cornerInd += 1;}
@@ -2237,14 +2310,19 @@ namespace MueLu {
             break;
 
           case 1: // Edge node
+            std::cout << "edge: nodeElementInd= " << nodeElementInd << " dof " << dof << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
+            std::cout <<  "lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]:" << lNodeLIDs[nodeElementInd]*BlkSize + dof + 1<< std::endl;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
               if(blockStrategy == "coupled") {
                 for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
                   size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                     + ind1*BlkSize + ind2;
+                  std::cout << "lRowPtr: " << lRowPtr << "ja: " << ja << std::endl;
                   ja[lRowPtr]  = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
+                  // Ari: Should be dof*BlkSize? Not sure what's going on here
+                  std::cout << "lDofInd[nodeElementInd]:" << lDofInd[nodeElementInd] << std::endl;
                   val[lRowPtr] = Pe(lDofInd[nodeElementInd*BlkSize + dof],
                                     ind1*BlkSize + ind2);
                 }
@@ -2259,6 +2337,7 @@ namespace MueLu {
             break;
 
           case 2: // Face node
+            std::cout << "face: nodeElementInd= " << nodeElementInd << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
@@ -2282,6 +2361,7 @@ namespace MueLu {
             break;
 
           case 3: // Interior node
+            std::cout << "interor: nodeElementInd= " << nodeElementInd << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
@@ -2315,9 +2395,9 @@ namespace MueLu {
                  RCP<Xpetra::MultiVector<double,LocalOrdinal,GlobalOrdinal,Node>>&Coordinates)
   const {
     //TODO: Offsets for parallel
-    std::cout << "----------------------------------------------------------" << std::endl;
-    std::cout << "Entering GetCoordinates" << std::endl;
-    std::cout << "----------------------------------------------------------" << std::endl;
+    //std::cout << "----------------------------------------------------------" << std::endl;
+    //std::cout << "Entering GetCoordinates" << std::endl;
+    //std::cout << "----------------------------------------------------------" << std::endl;
     GO  myOffset = 0;
     GO myZoffset = 0, myYoffset = 0, myXoffset = 0;
     LO lNumPoints = lFineNodesPerDir[0]*lFineNodesPerDir[1]*lFineNodesPerDir[2];
@@ -2340,17 +2420,17 @@ namespace MueLu {
         }
       }
     }
-    for(LO k = 0; k < lFineNodesPerDir[2]; ++k) {
-      for(LO j = 0; j < lFineNodesPerDir[1]; ++j) {
-        for(LO i = 0; i < lFineNodesPerDir[0]; ++i) {
-          GO GID = myGIDs[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
-          double x = myXCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
-          double y = myYCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
-          double z = myZCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
-          std::cout << "GID: " << GID << " x: " << x << " y: " << y << " z: " << z << std::endl;
-        }
-      }
-    }
+    //for(LO k = 0; k < lFineNodesPerDir[2]; ++k) {
+    //  for(LO j = 0; j < lFineNodesPerDir[1]; ++j) {
+    //    for(LO i = 0; i < lFineNodesPerDir[0]; ++i) {
+    //      GO GID = myGIDs[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
+    //      double x = myXCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
+    //      double y = myYCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
+    //      double z = myZCoords[k*lFineNodesPerDir[1]*lFineNodesPerDir[0] + j*lFineNodesPerDir[0] + i];
+    //      std::cout << "GID: " << GID << " x: " << x << " y: " << y << " z: " << z << std::endl;
+    //    }
+    //  }
+    //}
 
     Teuchos::Array<Teuchos::ArrayView<const double> > myCoordinates(numDimensions);
     if(numDimensions == 1) {
@@ -2388,7 +2468,7 @@ namespace MueLu {
       *type = 0;
       ind  = 4*ke / (elementNodesPerDir[2]-1) + 2*je / (elementNodesPerDir[1]-1)
         + ie / (elementNodesPerDir[0]-1);
-      // orientation doesn't matter so leave it -1?
+      // Ari: orientation doesn't matter so leave it -1?
     } else if(((ke == 0 || ke == elementNodesPerDir[2]-1)
                && (je == 0 || je == elementNodesPerDir[1]-1))
               || ((ke == 0 || ke == elementNodesPerDir[2]-1)

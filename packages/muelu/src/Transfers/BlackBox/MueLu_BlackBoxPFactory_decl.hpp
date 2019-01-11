@@ -215,8 +215,9 @@ namespace MueLu {
                            Teuchos::SerialDenseMatrix<LO,SC> Pe, LO numNodesInElement,
                            const Array<LO> elementNodesPerDir, const Array<LO>
                            connectivity, const Array<LO> lFineNodesPerDir, const int
-                           numDimensions, const Array<LO> coarseRate, const Array<LO>
-                           myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
+                           numDimensions, const Array<LO> coarseRate, const Array<LO> glElementCoarseNodeCG,
+                           const Array<LO> glElelementRefTuple,
+                           const Array<LO> myOffset, const Array<LO> dofType, const Array<LO> lDofInd,
                            const Array<LO> elemInds, const LO BlkSize, const int nnzPerCoarseNode,
                            const RCP<NodesIDs> ghostedCoarseNodes, const std::string blockStrategy,
                            const Array<LO> lCoarseNodesPerDir,

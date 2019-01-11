@@ -881,7 +881,7 @@ namespace MueLuTests {
 
       Teuchos::ParameterList matrixList;
       const std::string meshLayout = "Global Lexicographic";
-      const bool coupled = true;
+      const bool coupled = false;
       const std::string coupling = (coupled ? "coupled" : "uncoupled");
       const int numDimensions = 3;
       const LO  numCoarseElements = 2;
