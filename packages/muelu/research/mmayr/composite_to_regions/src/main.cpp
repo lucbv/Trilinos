@@ -85,6 +85,9 @@
 #include <Teuchos_ScalarTraits.hpp>
 #include <Teuchos_XMLParameterListHelpers.hpp>
 
+
+#include <SetupRegionMatrix_def.hpp>
+
 /* This is a driver that is not included in any other file.
  * So, we should be fine to create useful typedefs for Xpetra here and use them in the entire file.
  */
@@ -93,10 +96,12 @@ typedef int LocalOrdinal;
 typedef int GlobalOrdinal;
 typedef KokkosClassic::DefaultNode::DefaultNodeType Node;
 
+typedef LocalOrdinal (*LIDregion_type) (void*, const int, int);
+
 #include "Xpetra_UseShortNames.hpp"
 
-LocalOrdinal LIDregion(void *ptr, int LIDcomp, int whichGrp);
-LocalOrdinal LID2Dregion(void *ptr, int LIDcomp, int whichGrp);
+LocalOrdinal LIDregion(void *ptr, const int LIDcomp, int whichGrp);
+LocalOrdinal LID2Dregion(void *ptr, const int LIDcomp, int whichGrp);
 
 extern void edgeGhosts(int ArowPtr[], int Acols[], int &nGhostFound, int ghostCompLIDs[], int edgeLength, int alongX, int ownedEdge, int interiorEdge, int start, int ownedX, int ownedY);
 
@@ -122,21 +127,22 @@ enum InputDataIndices
 // this little widget handles application specific data
 // used to implement LIDregion()
 struct widget {
-   int *minGIDComp;
-   int *maxGIDComp;
-   int *myRegions;
-   Xpetra::Map<LocalOrdinal,GlobalOrdinal,Node> *colMap;
-   int maxRegPerGID;
-   Teuchos::RCP<MultiVector> regionsPerGIDWithGhosts;
-   int *gDim, *lDim, *lowInd;
-   int *trueCornerx; // global coordinates of region
-   int *trueCornery; // corner within entire 2D mesh
-   int *relcornerx;  // coordinates of corner relative
-   int *relcornery;  // to region corner
-   int *lDimx;
-   int *lDimy;
-   int nx;
-   int myRank;
+  int maxRegPerProc;
+  int *minGIDComp;
+  int *maxGIDComp;
+  int *myRegions;
+  Xpetra::Map<LocalOrdinal,GlobalOrdinal,Node> *colMap;
+  int maxRegPerGID;
+  Teuchos::RCP<MultiVector> regionsPerGIDWithGhosts;
+  int *gDim, *lDim, *lowInd;
+  int *trueCornerx; // global coordinates of region
+  int *trueCornery; // corner within entire 2D mesh
+  int *relcornerx;  // coordinates of corner relative
+  int *relcornery;  // to region corner
+  int *lDimx;
+  int *lDimy;
+  int nx;
+  int myRank;
 };
 
 //! Print an object in regional layout to screen
@@ -151,86 +157,6 @@ void printRegionalObject(const std::string objName, ///< string to be used for s
     outstream << myRank << ": " << objName << " " << j << std::endl;
     regObj[j]->describe(outstream, Teuchos::VERB_EXTREME);
   }
-}
-
-/*! \brief Transform composite vector to regional layout
- *
- *  Starting from a vector in composite layout, we
- *  1. import it into an auxiliary vector in the quasiRegional layout
- *  2. replace the quasiRegional map of the auxiliary vector with the regional map
- */
-void compositeToRegional(Teuchos::RCP<const Vector> compVec, ///< Vector in composite layout [in]
-    std::vector<Teuchos::RCP<Vector> >& quasiRegVecs, ///< Vector in quasiRegional layout [in/out]
-    std::vector<Teuchos::RCP<Vector> >& regVecs, ///< Vector in regional layout [in/out]
-    const int maxRegPerProc, ///< max number of regions per proc [in]
-    const std::vector<Teuchos::RCP<Map> > rowMapPerGrp, ///< row maps in region layout [in]
-    const std::vector<Teuchos::RCP<Map> > revisedRowMapPerGrp, ///< revised row maps in region layout [in]
-    const std::vector<Teuchos::RCP<Import> > rowImportPerGrp ///< row importer in region layout [in]
-    )
-{
-  // quasiRegional layout
-  for (int j = 0; j < maxRegPerProc; j++) {
-    // create empty vectors and fill it by extracting data from composite vector
-    quasiRegVecs[j] = VectorFactory::Build(rowMapPerGrp[j], true);
-    TEUCHOS_ASSERT(!quasiRegVecs[j].is_null());
-    quasiRegVecs[j]->doImport(*compVec, *(rowImportPerGrp[j]), Xpetra::INSERT);
-  }
-
-  // regional layout
-  for (int j = 0; j < maxRegPerProc; j++) {
-    // create regVecs vector (copy from quasiRegVecs and swap the map)
-    regVecs[j] = quasiRegVecs[j]; // assignment operator= does deep copy in Xpetra
-    TEUCHOS_ASSERT(!regVecs[j].is_null());
-    regVecs[j]->replaceMap(revisedRowMapPerGrp[j]);
-  }
-
-  return;
-}
-
-/*! \brief Transform regional vector to composite layout
- *
- *  Starting from a \c Epetra_Vector in regional layout, we
- *  1. replace the regional map with the quasiRegional map
- *  2. export it into a vector with composite layout using the \c CombineMode \c Add.
- *     Note: on-process values also have to be added to account for region interfaces inside a process.
- *
- *  \note We also need the capability to add processor-local values. This is not supported by
- *  available CombineMode options in Xpetra/Tpetra, so we use a manual implementation here.
- */
-void regionalToComposite(const std::vector<Teuchos::RCP<Vector> >& regVec, ///< Vector in region layout [in]
-    Teuchos::RCP<Vector> compVec, ///< Vector in composite layout [in/out]
-    const int maxRegPerProc, ///< max number of regions per proc
-    const std::vector<Teuchos::RCP<Map> > rowMapPerGrp, ///< row maps in quasiRegion layout [in]
-    const std::vector<Teuchos::RCP<Import> > rowImportPerGrp, ///< row importer in region layout [in]
-    const Xpetra::CombineMode combineMode ///< Combine mode for import/export [in]
-    )
-{
-  /* Let's fake an ADD combine mode that also adds local values by
-   * 1. exporting quasiRegional vectors to auxiliary composite vectors (1 per group)
-   * 2. add all auxiliary vectors together
-   */
-
-  Teuchos::RCP<MultiVector> partialCompVec = MultiVectorFactory::Build(compVec->getMap(), maxRegPerProc, true);
-  TEUCHOS_ASSERT(!partialCompVec.is_null());
-
-  std::vector<Teuchos::RCP<Vector> > quasiRegVec(maxRegPerProc);
-  for (int j = 0; j < maxRegPerProc; j++) {
-    // copy vector and replace map
-    quasiRegVec[j] = regVec[j]; // Xpetra: operator= mimics copy constructor
-    TEUCHOS_ASSERT(!quasiRegVec[j].is_null());
-
-    quasiRegVec[j]->replaceMap(rowMapPerGrp[j]);
-
-    // ToDo (mayr.mt) Use input variable 'combineMode'
-    partialCompVec->getVectorNonConst(j)->doExport(*quasiRegVec[j], *(rowImportPerGrp[j]), Xpetra::ADD);
-  }
-
-  compVec->putScalar(Teuchos::ScalarTraits<Scalar>::zero());
-  for (int j = 0; j < maxRegPerProc; j++) {
-    compVec->update(Teuchos::ScalarTraits<Scalar>::one(), *partialCompVec->getVector(j), Teuchos::ScalarTraits<Scalar>::one());
-  }
-
-  return;
 }
 
 /*! \brief Transform regional matrix to composite layout
@@ -493,67 +419,6 @@ void jacobiIterate(const int maxIter,
   }
 
   return;
-}
-
-/*! \brief Find common regions of two nodes
- *
- */
-std::vector<int> findCommonRegions(const GlobalOrdinal nodeA, ///< GID of first node
-    const GlobalOrdinal nodeB, ///< GID of second node
-    const MultiVector& nodesToRegions ///< mapping of nodes to regions
-    )
-{
-  // extract node-to-regions mapping for both nodes A and B
-  Teuchos::Array<int> regionsA;
-  Teuchos::Array<int> regionsB;
-  {
-    Teuchos::RCP<const Map> map = nodesToRegions.getMap();
-    for (std::size_t i = 0; i < nodesToRegions.getNumVectors(); ++i) {
-      regionsA.push_back(nodesToRegions.getData(i)[map->getLocalElement(nodeA)]);
-      regionsB.push_back(nodesToRegions.getData(i)[map->getLocalElement(nodeB)]);
-    }
-  }
-
-//  // Print list of regions for both nodes
-//  {
-//    int myRank = nodesToRegions.getMap()->getComm()->getRank();
-//    Teuchos::RCP<const Map> map = nodesToRegions.getMap();
-//    std::cout << myRank << ": nodeA = " << map->getGlobalElement(nodeA) << ": ";
-//    for (std::size_t i = 0; i < nodesToRegions.getNumVectors(); ++i)
-//      std::cout << ", " << regionsA[i];
-//    std::cout << std::endl;
-//    std::cout << myRank << ": nodeB = " << map->getGlobalElement(nodeB) << ": ";
-//      for (std::size_t i = 0; i < nodesToRegions.getNumVectors(); ++i)
-//        std::cout << ", " << regionsB[i];
-//      std::cout << std::endl;
-//  }
-
-  // identify common regions
-  std::vector<int> commonRegions(nodesToRegions.getNumVectors());
-  std::sort(regionsA.begin(), regionsA.end());
-  std::sort(regionsB.begin(), regionsB.end());
-
-  std::vector<int>::iterator it = std::set_intersection(regionsA.begin(),
-      regionsA.end(), regionsB.begin(), regionsB.end(), commonRegions.begin());
-  commonRegions.resize(it-commonRegions.begin());
-
-  // remove '-1' entries
-  std::vector<int> finalCommonRegions;
-  for (std::size_t i = 0; i < commonRegions.size(); ++i) {
-    if (commonRegions[i] != -1)
-      finalCommonRegions.push_back(commonRegions[i]);
-  }
-
-//  // Print result for debugging purposes
-//  {
-//    int myRank = nodesToRegions.getMap()->getComm()->getRank();
-//    std::cout << myRank << ": " << nodeA << "/" << nodeB << ": ";
-//    for (int i = 0; i < finalCommonRegions.size(); ++i)
-//      std::cout << ", " << finalCommonRegions[i];
-//    std::cout << std::endl;
-//  }
-
-  return finalCommonRegions;
 }
 
 /*! \brief Create coarse level maps with continuous GIDs
@@ -1096,12 +961,9 @@ int main(int argc, char *argv[]) {
   std::vector<Teuchos::RCP<Vector> > regionInterfaceScaling(maxRegPerProc);
   std::vector<Teuchos::RCP<Vector> > coarseRegionInterfaceScaling(maxRegPerProc);
 
-  std::vector<Teuchos::RCP<Vector> > regNspViolation(maxRegPerProc); // violation of nullspace property in region layout
-
   Teuchos::RCP<Vector> compX = Teuchos::null; // initial guess for truly composite calculations
   Teuchos::RCP<Vector> compY = Teuchos::null; // result vector for truly composite calculations
   Teuchos::RCP<Vector> regYComp = Teuchos::null; // result vector in composite layout, but computed via regional operations
-  Teuchos::RCP<Vector> nspViolation = Teuchos::null; // violation of nullspace property in composite layout
 
   std::vector<Teuchos::RCP<Vector> > quasiRegX(maxRegPerProc); // initial guess associated with myRank's ith region in quasiRegional layout
   std::vector<Teuchos::RCP<Vector> > quasiRegY(maxRegPerProc); // result vector associated with myRank's ith region in quasiRegional layout
@@ -1241,7 +1103,7 @@ int main(int argc, char *argv[]) {
   Comm->barrier();
 
   std::vector<LocalOrdinal> genericVector;
-  // Load AppData for LID region
+  // Load AppData forLID region
   {
     std::stringstream fileNameSS;
     fileNameSS << regionDataDirectory << "/myAppData_" << myRank;
@@ -1249,6 +1111,7 @@ int main(int argc, char *argv[]) {
     TEUCHOS_ASSERT(fp!=NULL);
 
     int retval; // dummy return value for fscanf() to suppress compiler warnings
+    appData.maxRegPerProc = maxRegPerProc;
 
     if (problemType == "structured") {
 
@@ -1276,8 +1139,7 @@ int main(int argc, char *argv[]) {
         }
         appData.minGIDComp = minGIDComp.data();
         appData.maxGIDComp = maxGIDComp.data();
-      }
-      else {
+      } else {
         appData.nx = globalNx;
         appData.gDim = (int *) malloc(sizeof(int)*3*myRegions.size());
         appData.lDimx= (int *) malloc(sizeof(int)*myRegions.size());
@@ -1294,8 +1156,7 @@ int main(int argc, char *argv[]) {
           retval = fscanf(fp,"%d%d%d",&(appData.trueCornerx[i]),&(appData.trueCornery[i]),&garbage);
         }
       }
-    }
-    else {
+    } else {
       TEUCHOS_TEST_FOR_EXCEPT_MSG(true, "Hybrid case not migrated to Xpetra, yet.");
 //      int isStructured;
 //      retval = fscanf(fp,"%d",&isStructured);
@@ -1327,457 +1188,80 @@ int main(int argc, char *argv[]) {
 
   Comm->barrier();
 
-  // Make group region row maps
-  {
-    std::cout << myRank << " | Creating region group row maps ..." << std::endl;
-
-    Teuchos::Array<GlobalOrdinal> rowGIDsReg;
-    const Teuchos::ArrayView<const GlobalOrdinal> colGIDsComp = AComp->getColMap()->getNodeElementList();
-
-    for (int k = 0; k < (int) myRegions.size(); k++) {
-      rowGIDsReg.resize(0);
-      std::vector<int> tempRegIDs(AComp->getColMap()->getNodeNumElements());
-      for (int i = 0; i < (int) AComp->getColMap()->getNodeNumElements(); i++) {
-
-        if (problemType == "structured") {
-          if (doing1D)
-            tempRegIDs[i] = LIDregion(&appData, i, k);
-          else
-            tempRegIDs[i] = LID2Dregion(&appData, i, k);
-        }
-        else {
-          tempRegIDs[i] = LIDregionCircleSquare(genericVector.data(), i, k);
-//          printf("%d: LIDRegion(Composite LID=%d or GID=%d) = %d\n",myRank,i,colGIDsComp[i],tempRegIDs[i]); fflush(stdout);
-        }
-      }
-
-      std::vector<int> idx(tempRegIDs.size());
-      std::iota(idx.begin(), idx.end(), 0);
-      sort(idx.begin(), idx.end(), [tempRegIDs](int i1,int i2) { return tempRegIDs[i1] < tempRegIDs[i2];});
-
-      for (int i = 0; i < Teuchos::as<int>(AComp->getColMap()->getNodeNumElements()); i++) {
-        if (tempRegIDs[idx[i]] != -1)
-          rowGIDsReg.push_back(colGIDsComp[idx[i]]);
-      }
-      rowMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(), rowGIDsReg,
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero(), Comm);
-    }
-
-    for (int k=(int) myRegions.size(); k < maxRegPerProc; k++) {
-      rowMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero(), Comm);
-    }
+  // Select the appropriate function pointer
+  LIDregion_type myLIDregion;
+  if (problemType == "structured") {
+    if (doing1D)
+      myLIDregion = &LIDregion;
+    else
+      myLIDregion = &LID2Dregion;
+  }
+  else {
+    myLIDregion = &LIDregionCircleSquare;
   }
 
+  Comm->barrier();
+
+  // Make group region row maps
+  MakeGroupRegionRowMaps<SC, LO, GO, NO, widget>(myRank,
+                                                 AComp,
+                                                 myLIDregion,
+                                                 appData,
+                                                 myRegions,
+                                                 rowMapPerGrp);
   Comm->barrier();
 
   // Make group region column maps
-  {
-    std::cout << myRank << " | Creating region group column maps ..." << std::endl;
-
-    if (whichCase == MultipleRegionsPerProc) {
-      // clone rowMap
-      for (int j=0; j < maxRegPerProc; j++) {
-        if (j < (int) myRegions.size()) {
-          colMapPerGrp[j] = MapFactory::Build(lib, Teuchos::OrdinalTraits<int>::invalid(),
-              rowMapPerGrp[j]->getNodeElementList(), Teuchos::OrdinalTraits<int>::zero(), Comm);
-        }
-        else
-        {
-          colMapPerGrp[j] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-              Teuchos::OrdinalTraits<GlobalOrdinal>::zero(), Comm);
-        }
-      }
-    }
-    else if (whichCase == RegionsSpanProcs) {//so maxRegPerProc = 1
-      Teuchos::Array<GlobalOrdinal> colIDsReg;
-
-      // copy the rowmap
-      Teuchos::ArrayView<const GlobalOrdinal> rowGIDsReg = rowMapPerGrp[0]->getNodeElementList();
-      for (LocalOrdinal i = 0; i < Teuchos::as<LocalOrdinal>(rowMapPerGrp[0]->getNodeNumElements()); i++)
-        colIDsReg.push_back(rowGIDsReg[i]);
-
-      // append additional ghosts who are in my region and
-      // for whom I have a LID
-      LocalOrdinal LID;
-      Teuchos::ArrayView<const GlobalOrdinal> colGIDsComp =  AComp->getColMap()->getNodeElementList();
-      for (std::size_t i = 0; i < AComp->getColMap()->getNodeNumElements(); i++) {
-      if (problemType == "structured") {
-        if (doing1D)
-          LID = LIDregion(&appData, i, 0);
-        else
-          LID = LID2Dregion(&appData, i, 0);
-      }
-      else {
-        LID = LIDregionCircleSquare(genericVector.data(), i, 0);
-      }
-        if (LID == -1) {
-          for (int j = 0; j < maxRegPerGID; j++) {
-            Teuchos::ArrayRCP<const double> jthRegions = regionsPerGIDWithGhosts->getData(j);
-            if  ( ((int) jthRegions[i]) == myRegions[0]) {
-              colIDsReg.push_back(colGIDsComp[i]);
-              break;
-            }
-          }
-        }
-      }
-      if ((int) myRegions.size() > 0) {
-       colMapPerGrp[0] = MapFactory::Build(lib, Teuchos::OrdinalTraits<int>::invalid(), colIDsReg,
-           Teuchos::OrdinalTraits<int>::zero(), Comm);
-      }
-      else
-      {
-        colMapPerGrp[0] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero(), Comm);
-      }
-    }
-    else { fprintf(stderr,"whichCase not set properly\n"); exit(1); }
-  }
-
+  MakeGroupRegionColumnMaps<SC, LO, GO, NO, widget>(myRank,
+                                                    whichCase,
+                                                    AComp,
+                                                    myLIDregion,
+                                                    appData,
+                                                    myRegions,
+                                                    rowMapPerGrp,
+                                                    colMapPerGrp);
   Comm->barrier();
 
   // Make extended group region maps
-  {
-    std::cout << myRank << " | Creating extended group region maps ..." << std::endl;
+  MakeGroupExtendedMaps<SC, LO, GO, NO, widget>(myRank,
+                                                whichCase,
+                                                AComp,
+                                                mapComp,
+                                                myLIDregion,
+                                                appData,
+                                                myRegions,
+                                                rowMapPerGrp,
+                                                colMapPerGrp,
+                                                revisedRowMapPerGrp,
+                                                revisedColMapPerGrp);
 
-    LocalOrdinal nLocal = AComp->getRowMap()->getNodeNumElements();
-    LocalOrdinal nExtended = AComp->getColMap()->getNodeNumElements();
-    LocalOrdinal nTotal = 0;
-    Teuchos::reduceAll<LocalOrdinal, LocalOrdinal>(*Comm, Teuchos::REDUCE_SUM, nLocal, Teuchos::outArg(nTotal));
-
-    // first step of NewGID calculation just counts the number of NewGIDs
-    // and sets firstNewGID[k] such that it is equal to the number of
-    // NewGIDs that have already been counted in (0:k-1) that myRank
-    // is responsible for.
-
-    RCP<Vector> firstNewGID = VectorFactory::Build(mapComp, true);
-    for (int k = 0; k < nLocal-1; k++) {
-      firstNewGID->replaceLocalValue(k+1, (firstNewGID->getData(0))[k]-1);
-      for (int j = 0; j < maxRegPerGID; j++) {
-        Teuchos::ArrayRCP<const Scalar> jthRegions = regionsPerGIDWithGhosts->getData(j);
-        if (jthRegions[k] != -scalarOne) firstNewGID->sumIntoLocalValue(k+1, scalarOne);
-      }
-    }
-    // So firstNewGID[nLocal-1] is number of NewGIDs up to nLocal-2
-    // To account for newGIDs associated with nLocal-1, we'll just
-    // use an upper bound (to avoid the little loop above).
-    // By adding maxRegPerGID-1 we account for the maximum
-    // number of possible newGIDs due to last composite id
-    Teuchos::ArrayRCP<const Scalar> firstNewGIDData = firstNewGID->getData(0);
-    GlobalOrdinal upperBndNumNewGIDs = Teuchos::as<GlobalOrdinal>(firstNewGIDData[nLocal-1]) + maxRegPerGID-1;
-    GlobalOrdinal upperBndNumNewGIDsAllProcs;
-    Teuchos::reduceAll<GlobalOrdinal,GlobalOrdinal>(*Comm, Teuchos::REDUCE_MAX, upperBndNumNewGIDs, Teuchos::outArg(upperBndNumNewGIDsAllProcs));
-
-//    std::cout << "upperBndNumNewGIDsAllProcs: " << upperBndNumNewGIDsAllProcs << std::endl;
-
-    // Now that we have an upper bound on the maximum number of
-    // NewGIDs over all procs, we sweep through firstNewGID again
-    // to assign ids to the first NewGID associated with each row of
-    // regionsPerGIDWithGhosts (by adding an offset)
-    ArrayRCP<Scalar> firstNewGIDDataNonConst = firstNewGID->getDataNonConst(0);
-    for (LocalOrdinal k = 0; k < nLocal; k++) {
-//      const GlobalOrdinal tmpGID = firstNewGIDDataNonConst[k];
-//      firstNewGIDDataNonConst[k] = tmpGID + upperBndNumNewGIDsAllProcs*myRank+nTotal;
-      firstNewGID->sumIntoLocalValue(k, upperBndNumNewGIDsAllProcs*myRank+nTotal);
-    }
-
-    RCP<Import> Importer = ImportFactory::Build(mapComp, AComp->getColMap());
-    RCP<Vector> firstNewGIDWithGhost = VectorFactory::Build(Importer->getTargetMap()); //AComp->getColMap());
-    firstNewGIDWithGhost->doImport(*firstNewGID, *Importer, Xpetra::INSERT);
-
-    Teuchos::Array<GlobalOrdinal> revisedGIDs;
-
-    for (std::size_t k = 0; k < myRegions.size(); k++) {
-      revisedGIDs.resize(0);
-      int curRegion = myRegions[k];
-      Teuchos::ArrayView<const GlobalOrdinal> colGIDsComp = AComp->getColMap()->getNodeElementList();
-      Teuchos::Array<LocalOrdinal> tempRegIDs(nExtended);
-
-      // must put revisedGIDs in application-provided order by
-      // invoking LIDregion() and sorting
-      for (LocalOrdinal i = 0; i < nExtended; i++) {
-        if (problemType == "structured") {
-          if (doing1D)
-            tempRegIDs[i] = LIDregion(&appData, i, k);
-          else
-            tempRegIDs[i] = LID2Dregion(&appData, i, k);
-        }
-        else {
-          tempRegIDs[i] = LIDregionCircleSquare(genericVector.data(), i, k);
-        }
-      }
-      Teuchos::Array<LocalOrdinal> idx(tempRegIDs.size());
-      std::iota(idx.begin(),idx.end(),0);
-      sort(idx.begin(),idx.end(),[tempRegIDs](int i1,int i2){return tempRegIDs[i1] < tempRegIDs[i2];});
-
-      // Now sweep through regionsPerGIDWithGhosts looking for those
-      // associated with curRegion and record the revisedGID
-      int j;
-      for (LocalOrdinal i = 0; i < nExtended; i++) {
-
-        if (tempRegIDs[idx[i]] != -1) {// if a valid LID for this region
-          for (j = 0; j < maxRegPerGID; j++) {
-            Teuchos::ArrayRCP<const Scalar> jthRegions = regionsPerGIDWithGhosts->getData(j);
-            if (((int) jthRegions[idx[i]]) == curRegion) break;
-          }
-
-          // (*regionsPerGIDWithGhosts)[0] entries keep original GID
-          // while others use firstNewGID to determine NewGID
-
-          if (j == 0) revisedGIDs.push_back(colGIDsComp[idx[i]]);
-          else if (j < maxRegPerGID) {
-             revisedGIDs.push_back((GlobalOrdinal) firstNewGIDWithGhost->getData(0)[idx[i]] + j - 1);
-          }
-
-          // add entry to listDulicatedGIDs
-        }
-      }
-
-      revisedRowMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(), revisedGIDs,
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero(),Comm);
-
-      // now append more stuff to handle ghosts ... needed for
-      // revised version of column map
-
-      for (LocalOrdinal i = 0; i < nExtended; i++) {
-        if (tempRegIDs[i] == -1) {// only in revised col map
-                   // note: since sorting not used when making the
-                   // original regional colmap, we can't use
-                   // it here either ... so no idx[]'s.
-          for (j = 0; j < maxRegPerGID; j++) {
-            Teuchos::ArrayRCP<const Scalar> jthRegions = regionsPerGIDWithGhosts->getData(j);
-            if  ( ((int) jthRegions[i]) == curRegion) break;
-          }
-          // (*regionsPerGIDWithGhosts)[0] entries keep original GID
-          // while others use firstNewGID to determine NewGID
-
-          if (j == 0) revisedGIDs.push_back(colGIDsComp[i]);
-          else if (j < maxRegPerGID) {
-            revisedGIDs.push_back((int) firstNewGIDWithGhost->getData(0)[i] + j - 1);
-          }
-        }
-      }
-      revisedColMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-          revisedGIDs, Teuchos::OrdinalTraits<GlobalOrdinal>::zero(), Comm);
-    }
-    for (std::size_t k = myRegions.size(); k < Teuchos::as<std::size_t>(maxRegPerProc); k++) {
-      revisedRowMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero() ,Comm);
-      revisedColMapPerGrp[k] = MapFactory::Build(lib, Teuchos::OrdinalTraits<GlobalOrdinal>::invalid(),
-          Teuchos::OrdinalTraits<GlobalOrdinal>::zero() ,Comm);
-    }
-
-    // Setup importers
-    for (int j = 0; j < maxRegPerProc; j++) {
-      rowImportPerGrp[j] = ImportFactory::Build(mapComp, rowMapPerGrp[j]);
-      colImportPerGrp[j] = ImportFactory::Build(mapComp, colMapPerGrp[j]);
-    }
+  // Setup importers
+  for (int j = 0; j < maxRegPerProc; j++) {
+    rowImportPerGrp[j] = ImportFactory::Build(mapComp, rowMapPerGrp[j]);
+    colImportPerGrp[j] = ImportFactory::Build(mapComp, colMapPerGrp[j]);
   }
-
   Comm->barrier();
 
   // Make quasiRegion matrices
-  {
-    std::cout << myRank << " | Forming quasiRegion matrices ..." << std::endl;
-
-    /* We use the edge-based splitting, i.e. we first modify off-diagonal
-     * entries in the composite matrix, then decompose it into region matrices
-     * and finally take care of diagonal entries by enforcing the nullspace
-     * preservation constraint.
-     */
-
-    // copy and modify the composite matrix
-    ACompSplit = MatrixFactory::BuildCopy(AComp);
-
-    for (LocalOrdinal row = 0; row < Teuchos::as<LocalOrdinal>(ACompSplit->getNodeNumRows()); row++) { // loop over local rows of composite matrix
-      GlobalOrdinal rowGID = ACompSplit->getRowMap()->getGlobalElement(row);
-      std::size_t numEntries = ACompSplit->getNumEntriesInLocalRow(row); // number of entries in this row
-      Teuchos::Array<Scalar> vals(numEntries); // non-zeros in this row
-      Teuchos::Array<LocalOrdinal> inds(numEntries); // local column indices
-      ACompSplit->getLocalRowCopy(row, inds, vals, numEntries);
-
-      for (std::size_t c = 0; c < Teuchos::as<std::size_t>(inds.size()); ++c) { // loop over all entries in this row
-        LocalOrdinal col = inds[c];
-        GlobalOrdinal colGID = ACompSplit->getColMap()->getGlobalElement(col);
-        std::vector<int> commonRegions;
-        if (rowGID != colGID) { // Skip the diagonal entry. It will be processed later.
-          commonRegions = findCommonRegions(rowGID, colGID, *regionsPerGIDWithGhosts);
-        }
-
-        if (commonRegions.size() > 1) {
-          vals[c] *= 0.5;
-        }
-      }
-
-      ACompSplit->resumeFill();
-      ACompSplit->replaceLocalValues(row, inds, vals);
-    }
-
-    // Import data from ACompSplit into the quasiRegion matrices
-    for (int j = 0; j < maxRegPerProc; j++) {
-      quasiRegionGrpMats[j] = MatrixFactory::Build(rowMapPerGrp[j], colMapPerGrp[j],
-          Teuchos::OrdinalTraits<int>::invalid(), Xpetra::DynamicProfile);
-      quasiRegionGrpMats[j]->doImport(*ACompSplit, *(rowImportPerGrp[j]), Xpetra::INSERT);
-      quasiRegionGrpMats[j]->fillComplete();
-    }
-  }
-
+  MakeQuasiregionMatrices(AComp,
+                          ACompSplit,
+                          appData,
+                          rowMapPerGrp,
+                          colMapPerGrp,
+                          rowImportPerGrp,
+                          quasiRegionGrpMats);
   Comm->barrier();
 
   // Make region matrices
-  {
-    std::cout << myRank << " | Forming region matrices ..." << std::endl;
-
-    // Copy data from quasiRegionGrpMats, but into new map layout
-    {
-      for (int j = 0; j < maxRegPerProc; j++) {
-        regionGrpMats[j] = rcp(new CrsMatrixWrap(revisedRowMapPerGrp[j], revisedColMapPerGrp[j], 9, Xpetra::DynamicProfile));
-
-        // Extract current region CrsMatrix
-        RCP<CrsMatrix> regionCrsMat = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(regionGrpMats[j])->getCrsMatrix();
-
-        // Extract current quasi-region CrsMatrix
-        RCP<CrsMatrix> quasiRegionCrsMat = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(quasiRegionGrpMats[j])->getCrsMatrix();
-
-        // Pull out the data from the quasi-region CrsMatrix
-        Teuchos::ArrayRCP<const size_t> rowptrQuasiRegion;
-        Teuchos::ArrayRCP<const LocalOrdinal> colindQuasiRegion;
-        Teuchos::ArrayRCP<const Scalar> valuesQuasiRegion;
-        quasiRegionCrsMat->getAllValues(rowptrQuasiRegion, colindQuasiRegion, valuesQuasiRegion);
-
-        // Do a deep copy of values
-        // (at least we've been doing deep copies so far, maybe we could do shallow copies to save time?)
-        Teuchos::ArrayRCP<size_t> rowptrRegion(rowptrQuasiRegion.size());
-        Teuchos::ArrayRCP<LocalOrdinal> colindRegion(colindQuasiRegion.size());
-        Teuchos::ArrayRCP<Scalar> valuesRegion(valuesQuasiRegion.size());
-
-        regionCrsMat->allocateAllValues(valuesRegion.size(), rowptrRegion, colindRegion, valuesRegion);
-
-        for(LocalOrdinal idx = 0; idx < static_cast<LocalOrdinal>(rowptrRegion.size()); ++idx) {
-          rowptrRegion[idx] = rowptrQuasiRegion[idx];
-        }
-
-        for(LocalOrdinal idx = 0; idx < static_cast<LocalOrdinal>(colindRegion.size()); ++idx) {
-          colindRegion[idx] = colindQuasiRegion[idx];
-          valuesRegion[idx] = valuesQuasiRegion[idx];
-        }
-
-        // Set and fillComplete the region CrsMatrix
-        regionCrsMat->setAllValues(rowptrRegion, colindRegion, valuesRegion);
-        regionCrsMat->expertStaticFillComplete(revisedRowMapPerGrp[j], revisedRowMapPerGrp[j]);
-      }
-    }
-
-    // enforce nullspace constraint
-    {
-      // compute violation of nullspace property close to DBCs
-      RCP<Vector> nspVec = VectorFactory::Build(mapComp);
-      nspVec->putScalar(scalarOne);
-      nspViolation = VectorFactory::Build(mapComp, true);
-      AComp->apply(*nspVec, *nspViolation);
-
-      // move to regional layout
-      std::vector<RCP<Vector> > quasiRegNspViolation(maxRegPerProc);
-      createRegionalVector(quasiRegNspViolation, maxRegPerProc, rowMapPerGrp);
-      createRegionalVector(regNspViolation, maxRegPerProc, revisedRowMapPerGrp);
-      compositeToRegional(nspViolation, quasiRegNspViolation, regNspViolation,
-          maxRegPerProc, rowMapPerGrp, revisedRowMapPerGrp, rowImportPerGrp);
-
-      /* The nullspace violation computed in the composite layout needs to be
-       * transfered to the regional layout. Since we use this to compute
-       * the splitting of the diagonal values, we need to split the nullspace
-       * violation. We'd like to use the 'regInterfaceScaling', though this is
-       * not setup at this point. So, let's compute it right now.
-       *
-       * ToDo: Move setup of 'regInterfaceScaling' up front to use it here.
-       */
-      {
-        // initialize region vector with all ones.
-        std::vector<RCP<Vector> > interfaceScaling(maxRegPerProc);
-        for (int j = 0; j < maxRegPerProc; j++) {
-          interfaceScaling[j] = VectorFactory::Build(revisedRowMapPerGrp[j]);
-          interfaceScaling[j]->putScalar(scalarOne);
-        }
-
-        // transform to composite layout while adding interface values via the Export() combine mode
-        RCP<Vector> compInterfaceScalingSum = VectorFactory::Build(mapComp, true);
-        regionalToComposite(interfaceScaling, compInterfaceScalingSum,
-            maxRegPerProc, rowMapPerGrp, rowImportPerGrp, Xpetra::ADD);
-
-        /* transform composite layout back to regional layout. Now, GIDs associated
-         * with region interface should carry a scaling factor (!= 1).
-         */
-        std::vector<RCP<Vector> > quasiRegInterfaceScaling(maxRegPerProc);
-        compositeToRegional(compInterfaceScalingSum, quasiRegInterfaceScaling,
-            interfaceScaling, maxRegPerProc, rowMapPerGrp,
-            revisedRowMapPerGrp, rowImportPerGrp);
-
-        // modify its interface entries
-        for (int j = 0; j < maxRegPerProc; j++) {
-          RCP<Vector> inverseInterfaceScaling = VectorFactory::Build(interfaceScaling[j]->getMap(), true);
-          inverseInterfaceScaling->reciprocal(*interfaceScaling[j]);
-          regNspViolation[j]->elementWiseMultiply(scalarOne, *regNspViolation[j], *inverseInterfaceScaling, scalarZero);
-        }
-      }
-    }
-
-    std::vector<RCP<Vector> > regNsp(maxRegPerProc);
-    std::vector<RCP<Vector> > regCorrection(maxRegPerProc);
-    for (int j = 0; j < maxRegPerProc; j++) {
-      regNsp[j] = VectorFactory::Build(revisedRowMapPerGrp[j]);
-      regNsp[j]->putScalar(scalarOne);
-
-      regCorrection[j] = VectorFactory::Build(revisedRowMapPerGrp[j], true);
-      regionGrpMats[j]->apply(*regNsp[j], *regCorrection[j]);
-    }
-
-    RCP<Vector> regDiag = Teuchos::null;
-    for (int j = 0; j < maxRegPerProc; j++) {
-      regDiag = VectorFactory::Build(revisedRowMapPerGrp[j], true);
-      regionGrpMats[j]->getLocalDiagCopy(*regDiag);
-      regDiag->update(-scalarOne, *regCorrection[j], scalarOne, *regNspViolation[j], scalarOne);
-
-      // Extract current region matrix in as CrsMatrix
-      RCP<CrsMatrix> regionCrsMat = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(regionGrpMats[j])->getCrsMatrix();
-      regionCrsMat->replaceDiag(*regDiag);
-    }
-  }
-
-  Comm->barrier();
-
-//  /* Form composite operator on fine level for debug purposes */
-//  {
-//    std::cout << myRank << " | Forming composite operator on fine level for debug purposes ..." << std::endl;
-//
-////    sleep(1);
-////    std::cout << myRank << " | Printing AComp ..." << std::endl;
-////    Comm->barrier();
-////    AComp->describe(*fos, Teuchos::VERB_EXTREME);
-//
-////    RCP<Matrix> recombinedAComp = MatrixFactory::Build(AComp->getCrsGraph());
-//    RCP<Matrix> recombinedAComp = MatrixFactory::Build(mapComp, 3, Xpetra::DynamicProfile);
-//    recombinedAComp->setAllToScalar(scalarZero);
-//    regionalToComposite(regionGrpMats, recombinedAComp, maxRegPerProc, rowMapPerGrp, colMapPerGrp, rowImportPerGrp, Xpetra::ADD);
-//
-////    sleep(1);
-////    std::cout << myRank << " | Printing recombinedAComp ..." << std::endl;
-////    Comm->barrier();
-////    recombinedAComp->describe(*fos, Teuchos::VERB_EXTREME);
-//
-//        // Warning: I'm not sure whether the diffOp is computed correctly.
-////    RCP<Matrix> diffOp = Teuchos::null; //MatrixFactory::Build(AComp->getCrsGraph());
-////    MatrixMatrix::TwoMatrixAdd(*AComp, false, scalarOne, *recombinedAComp, false, -scalarOne, diffOp, *fos);
-////
-////    sleep(1);
-////    std::cout << myRank << " | Printing diffOp ..." << std::endl;
-////    Comm->barrier();
-////    diffOp->describe(*fos, Teuchos::VERB_EXTREME);
-////    Teuchos::ScalarTraits<Scalar>::magnitudeType frobeniusNorm = diffOp->getFrobeniusNorm();
-////    Comm->barrier();
-////    std::cout << myRank << " | Forbenius norm = " << frobeniusNorm << std::endl;
-//
-//  }
-
+  MakeRegionMatrices(AComp,
+                     mapComp,
+                     rowMapPerGrp,
+                     revisedRowMapPerGrp,
+                     revisedColMapPerGrp,
+                     rowImportPerGrp,
+                     appData,
+                     quasiRegionGrpMats,
+                     regionGrpMats);
   Comm->barrier();
 
   // Create multigrid hierarchy
@@ -1949,7 +1433,7 @@ int main(int argc, char *argv[]) {
        * of duplicated interface GIDs.
        */
 
-      int err = 0;
+      // int err = 0;
 
       ////////////////////////////////////////////////////////////////////////
       // IDENTIFY DUPLICATED GIDS ON FINE LEVEL
@@ -2773,7 +2257,7 @@ int main(int argc, char *argv[]) {
  *
  * For fully structured 1D problems only.
  */
-LocalOrdinal LIDregion(void *ptr, LocalOrdinal LIDcomp, int whichGrp)
+LocalOrdinal LIDregion(void *ptr, const LocalOrdinal LIDcomp, int whichGrp)
 {
    struct widget * myWidget = (struct widget *) ptr;
 
