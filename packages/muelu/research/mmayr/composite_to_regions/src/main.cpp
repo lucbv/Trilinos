@@ -819,6 +819,9 @@ int main(int argc, char *argv[]) {
   {
     std::cout << myRank << " | Running V-cycle ..." << std::endl;
 
+    // Extract the number of levels from the prolongator data structure
+    numLevels = regProlong.size();
+
     TEUCHOS_TEST_FOR_EXCEPT_MSG(!(numLevels>0), "We require numLevel > 0. Probably, numLevel has not been set, yet.");
 
     /* We first use the non-level container variables to setup the fine grid problem.
