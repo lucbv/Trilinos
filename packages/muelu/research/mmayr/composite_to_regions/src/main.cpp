@@ -266,7 +266,7 @@ int main(int argc, char *argv[]) {
   char command[40];
   bool doing1D = false;
   int numDimensions = 0;
-  int  globalNx, globalNy;
+  GlobalOrdinal  globalNx, globalNy;
   std::string xmlFileName;
   std::string problemType;
   std::string regionDataDirectory;
@@ -341,43 +341,18 @@ int main(int argc, char *argv[]) {
   int maxRegPerGID = 0;
   int maxRegPerProc = 0;
   int whichCase = 0;
-  int iii = 0;
 
   // Read region info from file
-  {
-    std::stringstream fileNameSS;
-    fileNameSS << regionDataDirectory << "/myRegionInfo_" << myRank;
-    while ((fp = fopen(fileNameSS.str().c_str(),"r") ) == NULL) sleep(1);
-
-    fgets(command,80,fp);
-    sscanf(command,"%d",&maxRegPerGID);
-    while ( command[iii] != ' ') iii++;
-    sscanf(&(command[iii+1]),"%d",&maxRegPerProc);
-    while ( command[iii] == ' ') iii++;
-    while ( command[iii] != ' ') iii++;
-    sscanf(&(command[iii+1]),"%d",&globalNx);
-    while ( command[iii] == ' ') iii++;
-    while ( command[iii] != ' ') iii++;
-    sscanf(&(command[iii+1]),"%d",&globalNy);
-    while ( command[iii] == ' ') iii++;
-    while ( command[iii] != ' ') iii++;
-    if      (command[iii+1] == 'M') whichCase = MultipleRegionsPerProc;
-    else if (command[iii+1] == 'R') whichCase = RegionsSpanProcs;
-    else {fprintf(stderr,"%d: head messed up %s\n",myRank,command); exit(1);}
-  }
+  readRegionInfoFromFile<Scalar,LocalOrdinal,GlobalOrdinal,Node>(maxRegPerGID,
+      maxRegPerProc, globalNx, globalNy, whichCase, numDimensions, regionDataDirectory, myRank);
 
   Comm->barrier();
 
   // check for 1D or 2D problem
-  if (globalNy == 1)
+  if (numDimensions == 1)
     doing1D = true;
   else
     doing1D = false;
-
-  if (doing1D)
-    numDimensions = 1;
-  else
-    numDimensions = 2;
 
   // ******************************************************************
   // Application Specific Data for LIDregion()
