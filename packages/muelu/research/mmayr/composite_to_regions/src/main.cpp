@@ -80,12 +80,15 @@
 #include <Teuchos_Assert.hpp>
 #include <Teuchos_Comm.hpp>
 #include <Teuchos_CommandLineProcessor.hpp>
+#include <Teuchos_DefaultComm.hpp>
 #include <Teuchos_FancyOStream.hpp>
 #include <Teuchos_ScalarTraits.hpp>
 #include <Teuchos_XMLParameterListHelpers.hpp>
 
 
 #include <SetupRegionHierarchy_def.hpp>
+#include <HHG_read_from_file_def.hpp>
+#include <HHG_Utils_def.hpp>
 
 /* This is a driver that is not included in any other file.
  * So, we should be fine to create useful typedefs for Xpetra here and use them in the entire file.
@@ -121,27 +124,6 @@ enum InputDataIndices
   inpData_cornerY,
   inpData_nGhosts,
   inpData_firstLIDsOfGhosts
-};
-
-// this little widget handles application specific data
-// used to implement LIDregion()
-struct widget {
-  int maxRegPerProc;
-  int *minGIDComp;
-  int *maxGIDComp;
-  int *myRegions;
-  Xpetra::Map<LocalOrdinal,GlobalOrdinal,Node> *colMap;
-  int maxRegPerGID;
-  Teuchos::RCP<MultiVector> regionsPerGIDWithGhosts;
-  int *gDim, *lDim, *lowInd;
-  int *trueCornerx; // global coordinates of region
-  int *trueCornery; // corner within entire 2D mesh
-  int *relcornerx;  // coordinates of corner relative
-  int *relcornery;  // to region corner
-  int *lDimx;
-  int *lDimy;
-  int nx;
-  int myRank;
 };
 
 //! Print an object in regional layout to screen
