@@ -111,35 +111,6 @@ extern void fillCircleSquareData(int ArowPtr[], int Acols[], int ownedX, int own
 
 extern LocalOrdinal LIDregionCircleSquare(void *ptr, int compLID,int whichGrp);
 
-// Input data is read into a generic vector.
-// Use these enums to access entries in this vector.
-enum InputDataIndices
-{
-  inpData_isStructured,
-  inpData_ownedX,
-  inpData_ownedY,
-  inpData_regionX,
-  inpData_regionY,
-  inpData_cornerX,
-  inpData_cornerY,
-  inpData_nGhosts,
-  inpData_firstLIDsOfGhosts
-};
-
-//! Print an object in regional layout to screen
-template <class T>
-void printRegionalObject(const std::string objName, ///< string to be used for screen output
-    const std::vector<Teuchos::RCP<T> > regObj, ///< regional object to be printed to screen
-    const int myRank, ///< rank of calling proc
-    Teuchos::FancyOStream& outstream ///< output stream
-    )
-{
-  for (int j = 0; j < (int) regObj.size(); j++) {
-    outstream << myRank << ": " << objName << " " << j << std::endl;
-    regObj[j]->describe(outstream, Teuchos::VERB_EXTREME);
-  }
-}
-
 Teuchos::Array<LocalOrdinal> setLocalNodesPerDim(const std::string& problemType,
     const bool doing1D, const Map& rowMap, const LocalOrdinal dimX, const LocalOrdinal dimY, const LocalOrdinal dimZ = 1)
 {
