@@ -193,12 +193,16 @@ namespace MueLu {
                           LO& lNumCoarseNodes, ArrayRCP<Array<double> > coarseNodes,
                           Array<int>& boundaryFlags, RCP<NodesIDs> ghostedCoarseNodes) const;
 
+   void GenerateCoarseInfo(const Array<LO> coarseRate, const Array<GO> gFineNodesPerDir,
+                           const RCP<CrsGraph> prolongatorGraph, const Array<LO> lFineNodesPerDir, 
+                           const LO BlkSize, const LO numDimensions, Array<LO> &endRate,
+                           Array<LO>& myOffset, Array<GO>& gCoarseNodesPerDir, 
+                           Array<LO>& lCoarseNodesPerDir, Array<int>& boundaryFlags, Array<GO>& gIndices) const;
+
     void ComputeLocalEntries(const RCP<const Matrix>& Aghosted, const Array<LO> coarseRate,
-                             const Array<LO> endRate, const LO BlkSize, const
-                             Array<LO> elemInds, const LO numDimensions, const
+                             const LO BlkSize, const Array<LO> elemInds, const LO numDimensions, const
                              Array<LO> lFineNodesPerDir, const Array<LO> connectivity,
-                             const Array<bool> ghostInterface, const Array<int>
-                             elementFlags, const std::string stencilType, const
+                             const Array<int> elementFlags, const std::string stencilType, const
                              std::string blockStrategy, const Array<LO>
                              elementNodesPerDir, const LO numNodesInElement,
                              Teuchos::SerialDenseMatrix<LO,SC>& Pi,
@@ -223,8 +227,7 @@ namespace MueLu {
                            const Array<LO> lCoarseNodesPerDir,
                            ArrayView<size_t>& ia, ArrayView<LO>& ja, ArrayView<SC>& val) const;
 
-    void FormatStencil(const LO BlkSize, const Array<bool> ghostInterface, const LO ie,
-                       const LO je, const LO ke, const ArrayView<const SC> rowValues,
+    void FormatStencil(const LO BlkSize, const LO ie, const LO je, const LO ke, const ArrayView<const SC> rowValues,
                        const Array<LO> elementNodesPerDir, const int collapseFlags[3],
                        const std::string stencilType, Array<SC>& stencil) const;
 
