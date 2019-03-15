@@ -42,6 +42,8 @@
 // ***********************************************************************
 //
 // @HEADER
+#ifndef MUELU_HHG_UTILS_DEF_HPP
+#define MUELU_HHG_UTILS_DEF_HPP
 
 #include <Kokkos_DefaultNode.hpp>
 
@@ -107,3 +109,5 @@ void printRegionalObject(const std::string objName, ///< string to be used for s
     regObj[j]->describe(outstream, Teuchos::VERB_EXTREME);
   }
 }
+
+#endif // MUELU_HHG_UTILS_DEF_HPP

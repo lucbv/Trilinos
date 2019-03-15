@@ -42,6 +42,8 @@
 // ***********************************************************************
 //
 // @HEADER
+#ifndef MUELU_SETUPREGIONMATRIX_DEF_HPP
+#define MUELU_SETUPREGIONMATRIX_DEF_HPP
 
 #include <vector>
 #include <iostream>
@@ -663,3 +665,5 @@ void MakeRegionMatrices(const RCP<Xpetra::CrsMatrixWrap<Scalar, LocalOrdinal, Gl
     regionCrsMat->replaceDiag(*regDiag);
   }
 }
+
+#endif // MUELU_SETUPREGIONMATRIX_DEF_HPP

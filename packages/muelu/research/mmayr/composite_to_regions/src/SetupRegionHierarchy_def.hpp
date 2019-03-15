@@ -42,6 +42,8 @@
 // ***********************************************************************
 //
 // @HEADER
+#ifndef MUELU_SETUPREGIONHIERARCHY_DEF_HPP
+#define MUELU_SETUPREGIONHIERARCHY_DEF_HPP
 
 #include <vector>
 #include <iostream>
@@ -1442,3 +1444,5 @@ void vCycle(const int l, ///< ID of current level
 
   return;
 }
+
+#endif // MUELU_SETUPREGIONHIERARCHY_DEF_HPP
