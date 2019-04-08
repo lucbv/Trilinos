@@ -466,7 +466,7 @@ int main(int argc, char *argv[]) {
     std::stringstream fileNameSS;
     fileNameSS << regionDataDirectory << "/Amat.mm";
 
-    AComp = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(IO::Read(fileNameSS.str(), lib, Comm, false));
+    AComp = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(IO::Read(fileNameSS.str(), mapComp));
 //    AComp->describe(*fos, Teuchos::VERB_EXTREME);
   }
 
