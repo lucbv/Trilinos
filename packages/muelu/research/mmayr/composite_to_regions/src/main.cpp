@@ -337,7 +337,6 @@ int main(int argc, char *argv[]) {
 
   std::vector<LocalOrdinal> myRegions; // regions that myRank owns
   Teuchos::RCP<CrsMatrixWrap> AComp = Teuchos::null; // composite form of matrix
-  Teuchos::RCP<Matrix> ACompSplit = Teuchos::null; // composite form of matrix
   Teuchos::RCP<Map> mapComp = Teuchos::null; // composite map used to build AComp
 
   // regionsPerGID[i] lists all regions that share the ith composite GID
@@ -670,7 +669,6 @@ int main(int argc, char *argv[]) {
 
   // Make quasiRegion matrices
   MakeQuasiregionMatrices(AComp,
-                          ACompSplit,
                           appData,
                           rowMapPerGrp,
                           colMapPerGrp,

@@ -479,13 +479,14 @@ void MakeGroupExtendedMaps(const int myRank,
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node, class widget>
 void MakeQuasiregionMatrices(const RCP<Xpetra::CrsMatrixWrap<Scalar, LocalOrdinal, GlobalOrdinal, Node> > AComp,
-                             RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > ACompSplit,
-                             widget appData,
+                             const widget& appData,
                              std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > >& rowMapPerGrp,
                              std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > >& colMapPerGrp,
                              std::vector<RCP<Xpetra::Import<LocalOrdinal, GlobalOrdinal, Node> > >& rowImportPerGrp,
                              std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > >& quasiRegionGrpMats) {
 #include "Xpetra_UseShortNames.hpp"
+  using Teuchos::RCP;
+
   std::cout << AComp->getMap()->getComm()->getRank() << " | Forming quasiRegion matrices ..." << std::endl;
 
   /* We use the edge-based splitting, i.e. we first modify off-diagonal
@@ -494,8 +495,10 @@ void MakeQuasiregionMatrices(const RCP<Xpetra::CrsMatrixWrap<Scalar, LocalOrdina
    * preservation constraint.
    */
 
+
   // copy and modify the composite matrix
-  ACompSplit = MatrixFactory::BuildCopy(AComp);
+  RCP<Matrix> ACompSplit = MatrixFactory::BuildCopy(AComp);
+  ACompSplit->resumeFill();
 
   for (LocalOrdinal row = 0; row < Teuchos::as<LocalOrdinal>(ACompSplit->getNodeNumRows()); row++) { // loop over local rows of composite matrix
     GlobalOrdinal rowGID = ACompSplit->getRowMap()->getGlobalElement(row);
@@ -517,9 +520,11 @@ void MakeQuasiregionMatrices(const RCP<Xpetra::CrsMatrixWrap<Scalar, LocalOrdina
       }
     }
 
-    ACompSplit->resumeFill();
     ACompSplit->replaceLocalValues(row, inds, vals);
   }
+
+//  ACompSplit->fillComplete();
+  ACompSplit->fillComplete(AComp->getDomainMap(), AComp->getRangeMap());
 
   // Import data from ACompSplit into the quasiRegion matrices
   for (int j = 0; j < appData.maxRegPerProc; j++) {
