@@ -168,7 +168,7 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdin
   compMat->fillComplete();
 
   return;
-}
+} // regionalToComposite
 
 /*! \brief Create coarse level maps with continuous GIDs
  *
@@ -222,7 +222,7 @@ void createContinuousCoarseLevelMaps(RCP<const Xpetra::Map<LocalOrdinal, GlobalO
                                  rowMap->getComm());
 
   return;
-}
+} // createContinuousCoarseLevelMaps
 
 
 
@@ -240,7 +240,8 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
                          Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& regColMaps,
                          Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& quasiRegColMaps,
                          Array<std::vector<RCP<Xpetra::Import<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowImporters,
-                         Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong) {
+                         Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong)
+{
   /* General strategy to create coarse level maps:
    * =============================================
    *
@@ -867,7 +868,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       }
     }
   }
-}
+} // MakeCoarseLevelMaps
 
 
 // Form the composite coarse level operator
@@ -898,7 +899,7 @@ void MakeCoarseCompositeOperator(const int maxRegPerProc, const int numLevels,
   //      std::cout << myRank << " | Printing coarseCompOp ..." << std::endl;
   //      Comm->barrier();
   //      coarseCompOp->describe(*fos, Teuchos::VERB_HIGH);
-}
+} // MakeCoarseCompositeOperator
 
 
   // Make interface scaling factors recursively
@@ -936,7 +937,7 @@ void MakeInterfaceScalingFactors(const int numLevels, const int maxRegPerProc,
                         regInterfaceScalings[l], maxRegPerProc, quasiRegRowMaps[l],
                         regRowMaps[l], regRowImporters[l]);
   }
-}
+} // MakeInterfaceScalingFactors
 
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -964,7 +965,8 @@ void createRegionHierarchy(const int maxRegPerProc,
                            Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong,
                            Array<std::vector<RCP<Xpetra::Import<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowImporters,
                            Array<std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regInterfaceScalings,
-                           RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >& coarseCompOp) {
+                           RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >& coarseCompOp)
+{
 #include "Xpetra_UseShortNames.hpp"
 
   typedef MueLu::Hierarchy<Scalar, LocalOrdinal, GlobalOrdinal, Xpetra::EpetraNode> Hierarchy;
@@ -1086,7 +1088,7 @@ void createRegionHierarchy(const int maxRegPerProc,
                               regRowMaps,
                               regRowImporters,
                               quasiRegRowMaps);
-}
+} // createRegionHierarchy
 
 
 
@@ -1120,7 +1122,7 @@ void sumInterfaceValues(std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdinal, Glo
                       rowMapPerGrp, revisedRowMapPerGrp, rowImportPerGrp);
 
   return;
-}
+} // sumInterfaceValues
 
 
 /*! \brief Compute the residual \f$r = b - Ax\f$
@@ -1165,7 +1167,7 @@ computeResidual(std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdinal, GlobalOrdin
   }
 
   return regRes;
-}
+} // computeResidual
 
 
 /*! \brief Do Jacobi smoothing
@@ -1248,7 +1250,7 @@ void jacobiIterate(const int maxIter,
   }
 
   return;
-}
+} // jacobiIterate
 
 
 //! Recursive V-cycle in region fashion
@@ -1451,6 +1453,6 @@ void vCycle(const int l, ///< ID of current level
   }
 
   return;
-}
+} // vCycle
 
 #endif // MUELU_SETUPREGIONHIERARCHY_DEF_HPP
