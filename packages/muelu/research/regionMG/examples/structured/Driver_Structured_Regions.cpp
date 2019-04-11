@@ -140,8 +140,9 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   // =========================================================================
   typedef Teuchos::ScalarTraits<SC> STS;
   SC zero = STS::zero(), one = STS::one();
-  typedef typename STS::magnitudeType real_type;
+  typedef typename STS::coordinateType real_type;
   typedef Xpetra::MultiVector<real_type,LO,GO,NO> RealValuedMultiVector;
+  const real_type realOne = Teuchos::ScalarTraits<real_type>::one();
 
   // =========================================================================
   // Parameters initialization
@@ -217,10 +218,8 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
 
 
   RCP<Matrix>      A;
-  RCP<const Map>   nodeMap, dofMap;
+  RCP<Xpetra::Map<LO,GO,NO> > nodeMap, dofMap;
   RCP<RealValuedMultiVector> coordinates;
-  typedef typename RealValuedMultiVector::scalar_type Real;
-  RCP<Xpetra::MultiVector<SC,LO,GO,NO> > nullspace;
   RCP<MultiVector> X, B;
 
   galeriStream << "========================================================\n" << xpetraParameters << galeriParameters;
@@ -1060,8 +1059,8 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
 
   tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 3 - Build Region Matrix")));
 
-  std::vector<Teuchos::RCP<Map> > rowMapPerGrp(maxRegPerProc), colMapPerGrp(maxRegPerProc);
-  std::vector<Teuchos::RCP<Map> > revisedRowMapPerGrp(maxRegPerProc), revisedColMapPerGrp(maxRegPerProc);
+  std::vector<Teuchos::RCP<Xpetra::Map<LO,GO,NO> > > rowMapPerGrp(maxRegPerProc), colMapPerGrp(maxRegPerProc);
+  std::vector<Teuchos::RCP<Xpetra::Map<LO,GO,NO> > > revisedRowMapPerGrp(maxRegPerProc), revisedColMapPerGrp(maxRegPerProc);
   rowMapPerGrp[0] = Xpetra::MapFactory<LO,GO,Node>::Build(dofMap->lib(),
                                                           Teuchos::OrdinalTraits<GO>::invalid(),
                                                           quasiRegionGIDs(),
@@ -1099,8 +1098,89 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
                      revisedRowMapPerGrp, revisedColMapPerGrp,
                      rowImportPerGrp, maxRegPerProc, quasiRegionGrpMats, regionGrpMats);
 
+  if(myRank == 0) std::cout << "composite A:" << std::endl;
+  A->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+  if(myRank == 0) std::cout << "quasi-region A:" << std::endl;
+  quasiRegionGrpMats[0]->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+  if(myRank == 0) std::cout << "region A:" << std::endl;
+  regionGrpMats[0]->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
   comm->barrier();
   tm = Teuchos::null;
+
+  tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 4 - Build Region Hierarchy")));
+
+  // Setting up parameters before hierarchy construction
+  // These need to stay in the driver as they would be provide by an app
+  Array<Array<int> > regionNodesPerDim(maxRegPerProc);
+  Array<std::string> aggregationRegionType(maxRegPerProc);
+  Array<RCP<MultiVector> > nullspace(maxRegPerProc);
+  Array<RCP<RealValuedMultiVector> > regionCoordinates(maxRegPerProc);
+
+  // Set mesh structure data
+  regionNodesPerDim[0] = rNodesPerDim;
+
+  // Set aggregation type for each region
+  aggregationRegionType[0] = "structured";
+
+  // create nullspace vector
+  nullspace[0] = MultiVectorFactory::Build(revisedRowMapPerGrp[0], 1);
+  nullspace[0]->putScalar(one);
+
+  // create region coordinates vector
+  regionCoordinates[0] = Xpetra::MultiVectorFactory<real_type,LO,GO,NO>::Build(revisedRowMapPerGrp[0],
+                                                                               numDimensions);
+
+  /* Stuff for multi-level algorithm
+   *
+   * To allow for multi-level schemes with more than two levels, we need to store
+   * maps, matrices, vectors, and stuff like that on each level. Since we call the
+   * multi-level scheme recursively, this should be reflected in the design of
+   * variables.
+   *
+   * We use Teuchos::Array<T> to store each quantity on each level.
+   */
+  Array<RCP<Xpetra::Map<LO,GO,NO> > > compRowMaps; // composite row maps on each level
+  Array<RCP<Xpetra::Map<LO,GO,NO> > > compColMaps; // composite columns maps on each level
+  Array<std::vector<RCP<Xpetra::Map<LO,GO,NO> > > > regRowMaps; // regional row maps on each level
+  Array<std::vector<RCP<Xpetra::Map<LO,GO,NO> > > > regColMaps; // regional column maps on each level
+  Array<std::vector<RCP<Xpetra::Map<LO,GO,NO> > > > quasiRegRowMaps; // quasiRegional row maps on each level
+  Array<std::vector<RCP<Xpetra::Map<LO,GO,NO> > > > quasiRegColMaps; // quasiRegional column maps on each level
+  Array<std::vector<RCP<Matrix> > > regMatrices; // regional matrices on each level
+  Array<std::vector<RCP<Matrix> > > regProlong; // regional prolongators on each level
+  Array<std::vector<RCP<Import> > > regRowImporters; // regional row importers on each level
+  Array<std::vector<RCP<Vector> > > regInterfaceScalings; // regional interface scaling factors on each level
+  Teuchos::RCP<Matrix> coarseCompOp = Teuchos::null;
+
+
+  // Create multigrid hierarchy
+  createRegionHierarchy(maxRegPerProc,
+                        numDimensions,
+                        regionNodesPerDim,
+                        aggregationRegionType,
+                        xmlFileName,
+                        nullspace,
+                        regionCoordinates,
+                        regionGrpMats,
+                        dofMap,
+                        rowMapPerGrp,
+                        colMapPerGrp,
+                        revisedRowMapPerGrp,
+                        revisedColMapPerGrp,
+                        rowImportPerGrp,
+                        compRowMaps,
+                        compColMaps,
+                        regRowMaps,
+                        regColMaps,
+                        quasiRegRowMaps,
+                        quasiRegColMaps,
+                        regMatrices,
+                        regProlong,
+                        regRowImporters,
+                        regInterfaceScalings,
+                        coarseCompOp);
 
 
 
