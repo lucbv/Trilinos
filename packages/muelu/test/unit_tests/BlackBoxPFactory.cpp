@@ -110,12 +110,12 @@ namespace MueLuTests {
       RCP<typename MueLu::BlackBoxPFactory<SC,LO,GO,Node>::NodesIDs> ghostedCoarseNodes
         = rcp(new typename MueLu::BlackBoxPFactory<SC,LO,GO,Node>::NodesIDs{});
       MueLu::BlackBoxPFactory<SC,LO,GO,Node> mybbmgPFactory;
-      mybbmgPFactory.GetGeometricData(coordinates, coarseRate, gNodesPerDim, lNodesPerDim, BlkSize,
-                                      gIndices, myOffset, ghostInterface, endRate,
-                                      gCoarseNodesPerDir, lCoarseNodesPerDir, glCoarseNodesPerDir,
-                                      ghostGIDs, coarseNodesGIDs, colGIDs, gNumCoarseNodes,
-                                      lNumCoarseNodes, coarseNodes, boundaryFlags,
-                                      ghostedCoarseNodes);
+      //mybbmgPFactory.GetGeometricData(coordinates, coarseRate, gNodesPerDim, lNodesPerDim, BlkSize,
+      //                                gIndices, myOffset, ghostInterface, endRate,
+      //                                gCoarseNodesPerDir, lCoarseNodesPerDir, glCoarseNodesPerDir,
+      //                                ghostGIDs, coarseNodesGIDs, colGIDs, gNumCoarseNodes,
+      //                                lNumCoarseNodes, coarseNodes, boundaryFlags,
+      //                                ghostedCoarseNodes);
     };
 
     void TestComputeLocalEntries(const RCP<const Matrix>& Aghost, const Array<LO> coarseRate,
@@ -134,10 +134,10 @@ namespace MueLuTests {
                                  Teuchos::SerialDenseMatrix<LO,SC>& Pe,
                                  Array<LO>& dofType, Array<LO>& lDofInd) const {
       MueLu::BlackBoxPFactory<SC,LO,GO,NO> mybbmgPFactory;
-      mybbmgPFactory.ComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds, 
-                            numDimensions, lFineNodesPerDir, ghostInterface, elementFlags, stencilType,
-                            blockStrategy, elementNodesPerDir, numNodesInElement,
-                            Pi, Pf, Pe, dofType, lDofInd);
+      //mybbmgPFactory.ComputeLocalEntries(Aghost, coarseRate, BlkSize, elemInds, 
+      //                      numDimensions, lFineNodesPerDir, elementFlags, stencilType,
+      //                      blockStrategy, elementNodesPerDir, numNodesInElement,
+      //                      Pi, Pf, Pe, dofType, lDofInd);
     };
 
     void TestFormatStencil(const LO BlkSize, const Array<bool> ghostInterface, const LO ie,
@@ -702,11 +702,11 @@ namespace MueLuTests {
 
       Teuchos::SerialDenseMatrix<LO,SC> Pi, Pf, Pe;
       Array<LO> dofType(numNodesInElement*BlkSize), lDofInd(numNodesInElement*BlkSize);
-      //factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
-      //                                   lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
-      //                                   gIndices, lCoarseNodesPerDir, ghostInterface,
-      //                                   elementFlags, "reduced", "coupled", elementNodesPerDir,
-      //                                   numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
+      factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
+                                         lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
+                                         gIndices, lCoarseNodesPerDir, ghostInterface,
+                                         elementFlags, "reduced", "coupled", elementNodesPerDir,
+                                         numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
 
       elemInds[0] = 0;
       elemInds[1] = 0;
@@ -740,11 +740,11 @@ namespace MueLuTests {
       numNodesInElement = elementNodesPerDir[0]*elementNodesPerDir[1]*elementNodesPerDir[2];
 
       dofType.resize(numNodesInElement*BlkSize); lDofInd.resize(numNodesInElement*BlkSize);
-      //factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
-      //                                   lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
-      //                                   gIndices, lCoarseNodesPerDir, ghostInterface,
-      //                                   elementFlags, "reduced", "coupled", elementNodesPerDir,
-      //                                   numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
+      factTester.TestComputeLocalEntries(Aghost, coarseRate, endRate, BlkSize, elemInds,
+                                         lCoarseElementsPerDir, numDimensions, range, gNodesPerDim,
+                                         gIndices, lCoarseNodesPerDir, ghostInterface,
+                                         elementFlags, "reduced", "coupled", elementNodesPerDir,
+                                         numNodesInElement, colGIDs, Pi, Pf, Pe, dofType, lDofInd);
     }
 
   } // Prolongator
@@ -993,7 +993,9 @@ namespace MueLuTests {
       level.Set("gFineNodesPerDir", gFineNodesPerDir);
       level.Set("lFineNodesPerDir", lFineNodesPerDir);
       myBBPFact->BuildPCrs(level, prolongatorGraph, BBConnectivity);
-      LO BlkSize = 1;
+      RCP<Xpetra::Matrix<SC,LO,GO,Node> > P = level.Get<RCP<Matrix> >("P", MueLu::NoFactory::get());
+      RCP<CrsMatrix> PCrs = rcp_dynamic_cast<CrsMatrixWrap>(P)->getCrsMatrix();
+      Xpetra::IO<SC,LO,GO,NO>::Write("CleanedBlackBoxProlongator.m", *P);
       //Array<LO> elementNodesPerDir(3);
       //elementNodesPerDir[0] = 5;
       //elementNodesPerDir[1] = 3;

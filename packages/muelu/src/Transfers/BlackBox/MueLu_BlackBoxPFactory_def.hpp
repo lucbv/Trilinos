@@ -101,51 +101,51 @@ namespace MueLu {
   }
 
   template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
-  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::DeclareInput(Level& fineLevel,
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::DeclareInput(Level& level,
                                                                                  Level& coarseLevel)
     const {
-    Input(fineLevel, "A");
-    Input(fineLevel, "Nullspace");
-    Input(fineLevel, "Coordinates");
-    Input(fineLevel, "prolongatorGraph");
-    Input(fineLevel, "BlackBoxConnectivity");
+    Input(level, "A");
+    Input(level, "Nullspace");
+    Input(level, "Coordinates");
+    Input(level, "prolongatorGraph");
+    Input(level, "BlackBoxConnectivity");
     // Request the global number of nodes per dimensions
-    if(fineLevel.GetLevelID() == 0) {
-      if(fineLevel.IsAvailable("gFineNodesPerDir", NoFactory::get())) {
-        fineLevel.DeclareInput("gFineNodesPerDir", NoFactory::get(), this);
+    if(level.GetLevelID() == 0) {
+      if(level.IsAvailable("gFineNodesPerDir", NoFactory::get())) {
+        level.DeclareInput("gFineNodesPerDir", NoFactory::get(), this);
       } else {
-        TEUCHOS_TEST_FOR_EXCEPTION(fineLevel.IsAvailable("gFineNodesPerDir", NoFactory::get()),
+        TEUCHOS_TEST_FOR_EXCEPTION(level.IsAvailable("gFineNodesPerDir", NoFactory::get()),
                                    Exceptions::RuntimeError,
                                    "gFineNodesPerDir was not provided by the user on level0!");
       }
     } else {
-      Input(fineLevel, "gFineNodesPerDir");
+      Input(level, "gFineNodesPerDir");
     }
 
     // Request the local number of nodes per dimensions
-    if(fineLevel.GetLevelID() == 0) {
-      if(fineLevel.IsAvailable("lFineNodesPerDir", NoFactory::get())) {
-        fineLevel.DeclareInput("lFineNodesPerDir", NoFactory::get(), this);
+    if(level.GetLevelID() == 0) {
+      if(level.IsAvailable("lFineNodesPerDir", NoFactory::get())) {
+        level.DeclareInput("lFineNodesPerDir", NoFactory::get(), this);
       } else {
-        TEUCHOS_TEST_FOR_EXCEPTION(fineLevel.IsAvailable("lFineNodesPerDir", NoFactory::get()),
+        TEUCHOS_TEST_FOR_EXCEPTION(level.IsAvailable("lFineNodesPerDir", NoFactory::get()),
                                    Exceptions::RuntimeError,
                                    "lFineNodesPerDir was not provided by the user on level0!");
       }
     } else {
-      Input(fineLevel, "lFineNodesPerDir");
+      Input(level, "lFineNodesPerDir");
     }
   }
 
   template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
-  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::Build(Level& fineLevel,
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::Build(Level& level,
                                                                           Level& coarseLevel) const{
-    return BuildP(fineLevel, coarseLevel);
+    return BuildP(level, coarseLevel);
 
   }
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
-  BuildPCrs(Level& fineLevel, RCP<CrsGraph>& prolongatorGraph,
+  BuildPCrs(Level& level, RCP<CrsGraph>& prolongatorGraph,
             RCP<BlackBoxConnectivity>& BBConnectivity) const{
     std::cout << "----------------------------------------------------------" << std::endl;
     std::cout << "Entering BuildPCrs" << std::endl;
@@ -153,8 +153,8 @@ namespace MueLu {
     // Get parameter list
     const ParameterList& pL = GetParameterList();
     RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
-      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(fineLevel, "Coordinates");
-    RCP<Matrix>      A             = Get< RCP<Matrix> >      (fineLevel, "A");
+      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(level, "Coordinates");
+    RCP<Matrix>      A             = Get< RCP<Matrix> >      (level, "A");
     //TODO: get dimension
     LO numDimensions  = 3;
     LO BlkSize = A->GetFixedBlockSize();
@@ -162,15 +162,15 @@ namespace MueLu {
     Array<GO> gFineNodesPerDir(3);
     Array<LO> lFineNodesPerDir(3);
     // Get the number of points in each direction
-    if(fineLevel.GetLevelID() == 0) {
-      gFineNodesPerDir = fineLevel.Get<Array<GO> >("gFineNodesPerDir", NoFactory::get());
-      lFineNodesPerDir = fineLevel.Get<Array<LO> >("lFineNodesPerDir", NoFactory::get());
+    if(level.GetLevelID() == 0) {
+      gFineNodesPerDir = level.Get<Array<GO> >("gFineNodesPerDir", NoFactory::get());
+      lFineNodesPerDir = level.Get<Array<LO> >("lFineNodesPerDir", NoFactory::get());
     } else {
       // Loading global number of nodes per diretions
-      gFineNodesPerDir = Get<Array<GO> >(fineLevel, "gFineNodesPerDir");
+      gFineNodesPerDir = Get<Array<GO> >(level, "gFineNodesPerDir");
 
       // Loading local number of nodes per diretions
-      lFineNodesPerDir = Get<Array<LO> >(fineLevel, "lFineNodesPerDir");
+      lFineNodesPerDir = Get<Array<LO> >(level, "lFineNodesPerDir");
     }
     for(LO i = 0; i < 3; ++i) {
       if(gFineNodesPerDir[i] == 0) {
@@ -232,8 +232,6 @@ namespace MueLu {
     // Get the strategy for PDE systems
     const std::string blockStrategy = pL.get<std::string>("block strategy");
     //std::cout << "blockStrategy = " << blockStrategy << std::endl;
-    //const std::string blockStrategy = "uncoupled";
-    std::cout << "blockStrategy = " << blockStrategy << std::endl;
     if(blockStrategy != "coupled" && blockStrategy != "uncoupled") {
       GetOStream(Errors,-1) << " *** block strategy must be set to: coupled or uncoupled, any other "
               "value is trated as an error! *** " << std::endl;
@@ -252,17 +250,7 @@ namespace MueLu {
                        lFineNodesPerDir, BlkSize, numDimensions, endRate,
                        myOffset, gCoarseNodesPerDir, 
                        lCoarseNodesPerDir, boundaryFlags, gIndices);
-    std::cout << "myOffset: " << myOffset << std::endl;
-    std::cout << "gNumCoarseNodesPerDir: " << gCoarseNodesPerDir << std::endl;
-    std::cout << "lNumCoarseNodesPerDir: " << lCoarseNodesPerDir << std::endl;
-    std::cout << "boundaryFlags: " << boundaryFlags << std::endl;
-    //GetCoordinates(lFineNodesPerDir, gFineNodesPerDir, 3, comm, lib, coordinates);
-    //GetGeometricData(coordinates, coarseRate, gFineNodesPerDir, lFineNodesPerDir, BlkSize,// inputs
-    //                 gIndices, myOffset, ghostInterface, endRate, gCoarseNodesPerDir,     // outputs
-    //                 lCoarseNodesPerDir, glCoarseNodesPerDir, ghostGIDs, coarseNodesGIDs, colGIDs,
-    //                 gNumCoarseNodes, lNumCoarseNodes, coarseNodes, boundaryFlags,
-    //                 ghostedCoarseNodes);
-
+    
     // Unamalgamating map from prolongator, this should go away after small refactor of structured
     // aggregation factory to have it construct the true prolongatorGraph.
     ArrayView<const GO> initialRowMapGIDs = prolongatorGraph->getRowMap()->getNodeElementList();
@@ -391,10 +379,30 @@ namespace MueLu {
                        nnzPerCoarseNode, ghostedCoarseNodes, blockStrategy, lCoarseNodesPerDir, 
                        ia, ja, val);
     }
+    // Sort all row's column indicies and entries by LID
+    Xpetra::CrsMatrixUtils<SC,LO,GO,NO>::sortCrsEntries(ia, ja, val, rowMapP->lib());
+
+    // Set the values of the prolongation operators into the CrsMatrix P and call FillComplete
+    PCrs->setAllValues(iaP, jaP, valP);
+    PCrs->expertStaticFillComplete(domainMapP,rowMapP);
+
+    // set StridingInformation of P
+    if (A->IsView("stridedMaps") == true) {
+    std::cout << "A->IsView(stridedMaps) == true)" << std::endl;
+      PCrs->CreateView("stridedMaps", A->getRowMap("stridedMaps"), stridedDomainMapP);
+    } else {
+      P->CreateView("stridedMaps", PCrs->getRangeMap(), stridedDomainMapP);
+    }
+
+    //// store the transfer operator and node coordinates on coarse level
+    Set(level, "P", P);
+    //Set(coarseLevel, "coarseCoordinates", coarseCoordinates);
+    //Set<Array<GO> >(coarseLevel, "gCoarseNodesPerDim", gCoarseNodesPerDir);
+    //Set<Array<LO> >(coarseLevel, "lCoarseNodesPerDim", lCoarseNodesPerDir);
   }
 
   template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
-  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildP(Level& fineLevel,
+  void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::BuildP(Level& level,
                                                                            Level& coarseLevel)const{
     FactoryMonitor m(*this, "Build", coarseLevel);
 
@@ -402,10 +410,10 @@ namespace MueLu {
     const ParameterList& pL = GetParameterList();
 
     // obtain general variables
-    RCP<Matrix>      A             = Get< RCP<Matrix> >      (fineLevel, "A");
-    RCP<MultiVector> fineNullspace = Get< RCP<MultiVector> > (fineLevel, "Nullspace");
+    RCP<Matrix>      A             = Get< RCP<Matrix> >      (level, "A");
+    RCP<MultiVector> fineNullspace = Get< RCP<MultiVector> > (level, "Nullspace");
     RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
-      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(fineLevel, "Coordinates");
+      Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(level, "Coordinates");
     LO numDimensions  = coordinates->getNumVectors();
     LO BlkSize = A->GetFixedBlockSize();
 
@@ -413,15 +421,15 @@ namespace MueLu {
     Array<GO> gFineNodesPerDir(3);
     Array<LO> lFineNodesPerDir(3);
     // Get the number of points in each direction
-    if(fineLevel.GetLevelID() == 0) {
-      gFineNodesPerDir = fineLevel.Get<Array<GO> >("gFineNodesPerDir", NoFactory::get());
-      lFineNodesPerDir = fineLevel.Get<Array<LO> >("lFineNodesPerDir", NoFactory::get());
+    if(level.GetLevelID() == 0) {
+      gFineNodesPerDir = level.Get<Array<GO> >("gFineNodesPerDir", NoFactory::get());
+      lFineNodesPerDir = level.Get<Array<LO> >("lFineNodesPerDir", NoFactory::get());
     } else {
       // Loading global number of nodes per diretions
-      gFineNodesPerDir = Get<Array<GO> >(fineLevel, "gFineNodesPerDir");
+      gFineNodesPerDir = Get<Array<GO> >(level, "gFineNodesPerDir");
 
       // Loading local number of nodes per diretions
-      lFineNodesPerDir = Get<Array<LO> >(fineLevel, "lFineNodesPerDir");
+      lFineNodesPerDir = Get<Array<LO> >(level, "lFineNodesPerDir");
     }
     for(LO i = 0; i < 3; ++i) {
       if(gFineNodesPerDir[i] == 0) {
@@ -1706,7 +1714,7 @@ namespace MueLu {
       + 2*(elementNodesPerDir[1] - 2)*(elementNodesPerDir[2] - 2);
     numEdgeNodes = 4*(elementNodesPerDir[0] - 2) + 4*(elementNodesPerDir[1] - 2)
       + 4*(elementNodesPerDir[2] - 2);
-    std::cout << "numInteriorNodes: " << numInteriorNodes << " numFaceNodes: " << numFaceNodes << " numEdgeNodes: " << numEdgeNodes << std::endl;
+    //std::cout << "numInteriorNodes: " << numInteriorNodes << " numFaceNodes: " << numFaceNodes << " numEdgeNodes: " << numEdgeNodes << std::endl;
     // Diagonal blocks
     Teuchos::SerialDenseMatrix<LO,SC> Aii(BlkSize*numInteriorNodes, BlkSize*numInteriorNodes);
     Teuchos::SerialDenseMatrix<LO,SC> Aff(BlkSize*numFaceNodes,     BlkSize*numFaceNodes);
@@ -1738,10 +1746,10 @@ namespace MueLu {
     Array<LO> collapseDir(numNodesInElement*BlkSize);
     for(size_t i = 0; i < connectivity.size(); i++){
       LO nodeIdx = connectivity[i];
-      std::cout << "nodeIdx = " << nodeIdx << std::endl;
+      //std::cout << "nodeIdx = " << nodeIdx << std::endl;
       GetIJKfromIndex(nodeIdx, lFineNodesPerDir, nodeInd[0], nodeInd[1], nodeInd[2]);
       for(size_t i = 0; i < numDimensions; ++i) { nodeInd[i] -= elemInds[i];}
-      std::cout << "nodeInd[0]= " << nodeInd[0] << " nodeInd[1] = " << nodeInd[1] << " nodeInd[2] = " << nodeInd[2] << std::endl;
+      //std::cout << "nodeInd[0]= " << nodeInd[0] << " nodeInd[1] = " << nodeInd[1] << " nodeInd[2] = " << nodeInd[2] << std::endl;
       ie = nodeInd[0]; je = nodeInd[1]; ke = nodeInd[2];
       // Offset back to indexing from 0:elementNodesPerDir
       /******** Initialize lDofInd and dofType ********/
@@ -1754,7 +1762,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 0;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countCorner + dof;
-          std::cout << "Corner!"  << std::endl;
+          //std::cout << "Corner!"  << std::endl;
         }
         ++countCorner;
 
@@ -1770,7 +1778,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 1;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countEdge + dof;
-          std::cout << "Edge!"  << std::endl;
+          //std::cout << "Edge!"  << std::endl;
           if((ke == 0 || ke == elementNodesPerDir[2]-1)
              && (je == 0 || je == elementNodesPerDir[1]-1)) {
             collapseDir[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
@@ -1807,7 +1815,7 @@ namespace MueLu {
                                  + je*elementNodesPerDir[0] + ie) + dof] = 0;
           }
         }
-        std::cout << "Face!" << std::endl;
+        //std::cout << "Face!" << std::endl;
         ++countFace;
 
       // Otherwise it is an interior node
@@ -1817,7 +1825,7 @@ namespace MueLu {
                            + je*elementNodesPerDir[0] + ie) + dof] = 3;
           lDofInd[BlkSize*(ke*elementNodesPerDir[1]*elementNodesPerDir[0]
                            + je*elementNodesPerDir[0] + ie) + dof] = BlkSize*countInterior +dof;
-        std::cout << "Interior!" << std::endl;
+        //std::cout << "Interior!" << std::endl;
         }
         ++countInterior;
       }
@@ -1942,7 +1950,7 @@ namespace MueLu {
       } // Loop over degrees of freedom associated to a given node
     }
 
-    std::cout << "countInterior= " << countInterior << " countFace = " << countFace << " countEdge = " << countEdge << " countCorner = "<< countCorner  << std::endl;
+    //std::cout << "countInterior= " << countInterior << " countFace = " << countFace << " countEdge = " << countEdge << " countCorner = "<< countCorner  << std::endl;
     // Compute the projection operators for edge and interior nodes
     //
     //         [P_i] = [A_{ii} & A_{if} & A_{ie}]^{-1} [A_{ic}]
@@ -1987,7 +1995,6 @@ namespace MueLu {
       problem.factorWithEquilibration(true);
       problem.solve();
       problem.unequilibrateLHS();
-      std::cout << "About to Exit ComputeLocalEntries" << std::endl;
     }
   } // ComputeLocalEntries()
 
@@ -2225,13 +2232,9 @@ namespace MueLu {
     std::cout << "EnodesPerDir[0]= " << elementNodesPerDir[0] << " EnodesPerDir[1]= " << elementNodesPerDir[1] << " EnodesPerDir[2]= " << elementNodesPerDir[2] << std::endl;
     for(size_t i = 0; i < connectivity.size(); i++){
       LO nodeIdx = connectivity[i];
-      std::cout << "nodeIdx = " << nodeIdx << std::endl;
+      //std::cout << "nodeIdx = " << nodeIdx << std::endl;
       GetIJKfromIndex(nodeIdx, lFineNodesPerDir, nodeInd[0], nodeInd[1], nodeInd[2]);
-      std::cout << "Before:" << std::endl;
-      std::cout << "nodeInd[0]= " << nodeInd[0] << " nodeInd[1] = " << nodeInd[1] << " nodeInd[2] = " << nodeInd[2] << std::endl;
       for(size_t i = 0; i < numDimensions; ++i) { nodeInd[i] -= elemInds[i];}
-      std::cout << "After:" << std::endl;
-      std::cout << "nodeInd[0]= " << nodeInd[0] << " nodeInd[1] = " << nodeInd[1] << " nodeInd[2] = " << nodeInd[2] << std::endl;
       int stencilLength = 0;
       if((nodeInd[0] == 0 || nodeInd[0] == elementNodesPerDir[0] - 1) &&
          (nodeInd[1] == 0 || nodeInd[1] == elementNodesPerDir[1] - 1) &&
@@ -2289,7 +2292,6 @@ namespace MueLu {
           + refCoarsePointTuple[1]*lCoarseNodesPerDir[0]
           + refCoarsePointTuple[2]*lCoarseNodesPerDir[1]*lCoarseNodesPerDir[0];
         const LO numFinePoints = lNodeLIDs[nodeElementInd] + 1;
-        std::cout << "numFinePoints= " << numFinePoints << std::endl;
 
         // The below formula computes the rowPtr for row 'n+BlkSize' and we are about to
         // fill row 'n' to 'n+BlkSize'.
@@ -2302,7 +2304,6 @@ namespace MueLu {
           rowPtr = rowPtr - BlkSize*numCoarseNodesInElement*nnzPerCoarseNode;
         }
 
-        std::cout << "rowPtr= " << rowPtr << std::endl;
 
         for(int dof = 0; dof < BlkSize; ++dof) {
 
@@ -2310,7 +2311,7 @@ namespace MueLu {
           int cornerInd = 0;
           switch(dofType[nodeElementInd*BlkSize + dof]) {
           case 0: // Corner node
-            std::cout << "corner:" << "nodeElementInd" << nodeElementInd << std::endl;
+            //std::cout << "corner:" << "nodeElementInd" << nodeElementInd << std::endl;
             if(nodeInd[2] == elementNodesPerDir[2] - 1) {cornerInd += 4;}
             if(nodeInd[1] == elementNodesPerDir[1] - 1) {cornerInd += 2;}
             if(nodeInd[0] == elementNodesPerDir[0] - 1) {cornerInd += 1;}
@@ -2321,7 +2322,7 @@ namespace MueLu {
             break;
 
           case 1: // Edge node
-            std::cout << "edge: nodeElementInd= " << nodeElementInd << " dof " << dof << std::endl;
+            //std::cout << "edge: nodeElementInd= " << nodeElementInd << " dof " << dof << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
             //std::cout <<  "lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]:" << lNodeLIDs[nodeElementInd]*BlkSize + dof + 1<< std::endl;
@@ -2348,18 +2349,16 @@ namespace MueLu {
             break;
 
           case 2: // Face node
-            std::cout << "face: nodeElementInd= " << nodeElementInd << std::endl;
+            //std::cout << "face: nodeElementInd= " << nodeElementInd << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
 
-            std::cout << "val.size(): " << val.size() << std::endl;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
               if(blockStrategy == "coupled") {
                 for(int ind2 = 0; ind2 < BlkSize; ++ind2) {
                   size_t lRowPtr = rowPtr + dof*numCoarseNodesInElement*nnzPerCoarseNode
                     + ind1*BlkSize + ind2;
                   //ja [lRowPtr] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[ind1]]*BlkSize + ind2;
-                  std::cout << "lRowPtr" << lRowPtr << std::endl;
                   val[lRowPtr] = Pf(lDofInd[nodeElementInd*BlkSize + dof],
                                     ind1*BlkSize + ind2);
                 }
@@ -2375,7 +2374,7 @@ namespace MueLu {
             break;
 
           case 3: // Interior node
-            std::cout << "interor: nodeElementInd= " << nodeElementInd << std::endl;
+            //std::cout << "interor: nodeElementInd= " << nodeElementInd << std::endl;
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1]
               = rowPtr + (dof + 1)*numCoarseNodesInElement*nnzPerCoarseNode;
             for(int ind1 = 0; ind1 < stencilLength; ++ind1) {
