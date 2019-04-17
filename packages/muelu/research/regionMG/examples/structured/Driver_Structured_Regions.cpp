@@ -138,10 +138,10 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   // =========================================================================
   // Convenient definitions
   // =========================================================================
-  typedef Teuchos::ScalarTraits<SC> STS;
+  using STS = Teuchos::ScalarTraits<SC>;
   SC zero = STS::zero(), one = STS::one();
-  typedef typename STS::coordinateType real_type;
-  typedef Xpetra::MultiVector<real_type,LO,GO,NO> RealValuedMultiVector;
+  using real_type = typename STS::coordinateType;
+  using RealValuedMultiVector = Xpetra::MultiVector<real_type,LO,GO,NO>;
   const real_type realOne = Teuchos::ScalarTraits<real_type>::one();
 
   // =========================================================================
@@ -214,13 +214,13 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   comm->barrier();
   Teuchos::TimeMonitor::setStackedTimer(Teuchos::null);
   RCP<TimeMonitor> globalTimeMonitor = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: S - Global Time")));
-  RCP<TimeMonitor> tm                = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 1 - Matrix Build")));
+  RCP<TimeMonitor> tm                = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 1 - Build Composite Matrix")));
 
 
   RCP<Matrix>      A;
   RCP<Xpetra::Map<LO,GO,NO> > nodeMap, dofMap;
   RCP<RealValuedMultiVector> coordinates;
-  RCP<MultiVector> X, B;
+  RCP<Vector> X, B;
 
   galeriStream << "========================================================\n" << xpetraParameters << galeriParameters;
 
@@ -1183,88 +1183,113 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
                         coarseCompOp);
 
 
+  comm->barrier();
+  tm = Teuchos::null;
 
-// #ifdef HAVE_MUELU_CUDA
-//   if(profileSetup) cudaProfilerStart();
-// #endif
+  tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 5 - Solve with V-cycle")));
 
-//   tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 2 - MueLu Setup")));
-//   RCP<Hierarchy> H;
-//   RCP<Operator> Prec;
-//   A->SetMaxEigenvalueEstimate(-Teuchos::ScalarTraits<SC>::one());
+  {
+    std::cout << myRank << " | Running V-cycle ..." << std::endl;
 
-//   const std::string userName = "user data";
-//   Teuchos::ParameterList& userParamList = paramList.sublist(userName);
-//   userParamList.set<int>("int numDimensions", numDimensions);
-//   userParamList.set<Teuchos::Array<LO> >("Array<LO> lNodesPerDim", lNodesPerDim);
-//   userParamList.set<RCP<RealValuedMultiVector> >("Coordinates", coordinates);
-//   H = MueLu::CreateXpetraPreconditioner(A, paramList, paramList);
+    // Extract the number of levels from the prolongator data structure
+    int numLevels = regProlong.size();
 
-//   comm->barrier();
-//   tm = Teuchos::null;
+    TEUCHOS_TEST_FOR_EXCEPT_MSG(!(numLevels>0), "We require numLevel > 0. Probably, numLevel has not been set, yet.");
 
-// #ifdef HAVE_MUELU_CUDA
-//   if(profileSolve) cudaProfilerStop();
-// #endif
+    /* We first use the non-level container variables to setup the fine grid problem.
+     * This is ok since the initial setup just mimics the application and the outer
+     * Krylov method.
+     *
+     * We switch to using the level container variables as soon as we enter the
+     * recursive part of the algorithm.
+     */
 
-//   tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 3 - LHS and RHS initialization")));
-//   X->putScalar(zero);
-//   tm = Teuchos::null;
+    // residual vector
+    RCP<Vector> compRes = VectorFactory::Build(dofMap, true);
+    {
+      A->apply(*X, *compRes, Teuchos::NO_TRANS);
+      compRes->update(one, *B, -one);
+    }
 
-// #ifdef HAVE_MUELU_BELOS
-//   tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 5 - Belos Solve")));
-// #ifdef HAVE_MUELU_CUDA
-//   if(profileSolve) cudaProfilerStart();
-// #endif
-//   // Operator and Multivector type that will be used with Belos
-//   typedef MultiVector          MV;
-//   typedef Belos::OperatorT<MV> OP;
+    // transform composite vectors to regional layout
+    std::vector<Teuchos::RCP<Vector> > quasiRegX(maxRegPerProc);
+    std::vector<Teuchos::RCP<Vector> > regX(maxRegPerProc);
+    compositeToRegional(X, quasiRegX, regX, maxRegPerProc, rowMapPerGrp,
+                        revisedRowMapPerGrp, rowImportPerGrp);
 
-//   // Define Operator and Preconditioner
-//   Teuchos::RCP<OP> belosOp   = Teuchos::rcp(new Belos::XpetraOp<SC, LO, GO, NO>(A)); // Turns a Xpetra::Matrix object into a Belos operator
-//   Teuchos::RCP<OP> belosPrec; // Turns a MueLu::Hierarchy object into a Belos operator
-//   H->IsPreconditioner(true);
-//   belosPrec = Teuchos::rcp(new Belos::MueLuOp <SC, LO, GO, NO>(H)); // Turns a MueLu::Hierarchy object into a Belos operator
+    std::vector<RCP<Vector> > quasiRegB(maxRegPerProc);
+    std::vector<RCP<Vector> > regB(maxRegPerProc);
+    compositeToRegional(B, quasiRegB, regB, maxRegPerProc, rowMapPerGrp,
+                        revisedRowMapPerGrp, rowImportPerGrp);
 
-//   // Construct a Belos LinearProblem object
-//   RCP<Belos::LinearProblem<SC, MV, OP> > belosProblem = rcp(new Belos::LinearProblem<SC, MV, OP>(belosOp, X, B));
-//   if(solvePreconditioned) belosProblem->setRightPrec(belosPrec);
+    //    printRegionalObject<Vector>("regB 0", regB, myRank, *fos);
 
-//   bool set = belosProblem->setProblem();
-//   if (set == false) {
-//     out << "\nERROR:  Belos::LinearProblem failed to set up correctly!" << std::endl;
-//     return EXIT_FAILURE;
-//   }
+    std::vector<RCP<Vector> > regRes(maxRegPerProc);
+    for (int j = 0; j < maxRegPerProc; j++) { // step 1
+      regRes[j] = VectorFactory::Build(revisedRowMapPerGrp[j], true);
+    }
 
-//   // Belos parameter list
-//   Teuchos::ParameterList belosList;
-//   belosList.set("Maximum Iterations",    maxIts); // Maximum number of iterations allowed
-//   belosList.set("Convergence Tolerance", tol);    // Relative convergence tolerance requested
-//   belosList.set("Verbosity",             Belos::Errors + Belos::Warnings + Belos::StatusTestDetails);
-//   belosList.set("Output Frequency",      1);
-//   belosList.set("Output Style",          Belos::Brief);
-//   if (!scaleResidualHist)
-//     belosList.set("Implicit Residual Scaling", "None");
+    /////////////////////////////////////////////////////////////////////////
+    // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
+    /////////////////////////////////////////////////////////////////////////
 
-//   // Create an iterative solver manager
-//   RCP< Belos::SolverManager<SC, MV, OP> > solver;
-//   solver = rcp(new Belos::BlockGmresSolMgr<SC, MV, OP>(belosProblem, rcp(&belosList, false)));
+    // define max iteration counts
+    const int maxVCycle = 200;
+    const int maxFineIter = 20;
+    const int maxCoarseIter = 100;
+    const double omega = 0.67;
 
-//   // Perform solve
-//   Belos::ReturnType retStatus = Belos::Unconverged;
-//   retStatus = solver->solve();
+    // Prepare output of residual norm to file
+    RCP<std::ofstream> log;
+    if (myRank == 0)
+      {
+        std::string s = "residual_norm.txt";
+        log = rcp(new std::ofstream(s.c_str()));
+        (*log) << "# num procs = " << dofMap->getComm()->getSize() << "\n"
+               << "# iteration | res-norm\n"
+               << "#\n";
+      }
 
-//   // Get the number of iterations for this solve.
-//   out << "Number of iterations performed for this solve: " << solver->getNumIters() << std::endl;
-//   // Check convergence
-//   if (retStatus != Belos::Converged)
-//     out << std::endl << "ERROR:  Belos did not converge! " << std::endl;
-//   else
-//     out << std::endl << "SUCCESS:  Belos converged!" << std::endl;
-// #ifdef HAVE_MUELU_CUDA
-//   if(profileSolve) cudaProfilerStop();
-// #endif
-// #endif //ifdef HAVE_MUELU_BELOS
+    // Richardson iterations
+    for (int cycle = 0; cycle < maxVCycle; ++cycle) {
+      // check for convergence
+      {
+        ////////////////////////////////////////////////////////////////////////
+        // SWITCH BACK TO NON-LEVEL VARIABLES
+        ////////////////////////////////////////////////////////////////////////
+
+        computeResidual(regRes, regX, regB, regionGrpMats, dofMap,
+                        rowMapPerGrp, revisedRowMapPerGrp, rowImportPerGrp);
+
+        //        printRegionalObject<Vector>("regB 1", regB, myRank, *fos);
+
+        compRes = VectorFactory::Build(dofMap, true);
+        regionalToComposite(regRes, compRes, maxRegPerProc, rowMapPerGrp,
+                            rowImportPerGrp, Xpetra::ADD);
+        typename Teuchos::ScalarTraits<Scalar>::magnitudeType normRes = compRes->norm2();
+
+        // Output current residual norm to screen (on proc 0 only)
+        if (myRank == 0)
+          {
+            std::cout << cycle << "\t" << normRes << std::endl;
+            (*log) << cycle << "\t" << normRes << "\n";
+          }
+
+        if (normRes < 1.0e-12)
+          break;
+      }
+
+      /////////////////////////////////////////////////////////////////////////
+      // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
+      /////////////////////////////////////////////////////////////////////////
+
+      //      printRegionalObject<Vector>("regB 2", regB, myRank, *fos);
+      vCycle(0, numLevels, maxFineIter, maxCoarseIter, omega, maxRegPerProc, regX, regB,
+             regMatrices,
+             regProlong, compRowMaps, quasiRegRowMaps, regRowMaps, regRowImporters,
+             regInterfaceScalings, coarseCompOp);
+    }
+  }
 
   comm->barrier();
   tm = Teuchos::null;
