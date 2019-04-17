@@ -66,6 +66,7 @@
 #include <Xpetra_CrsMatrixWrap.hpp>
 
 #include <MueLu_CreateXpetraPreconditioner.hpp>
+#include <MueLu_Utilities.hpp>
 
 #include "SetupRegionMatrix_def.hpp"
 
@@ -74,76 +75,6 @@ using Teuchos::ArrayRCP;
 using Teuchos::Array;
 using Teuchos::ArrayView;
 using Teuchos::ParameterList;
-
-
-/*! \brief Compute the transpose of a Xpetra::Matrix object
- */
-template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
-RCP<Xpetra::Matrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> >
-Transpose(Xpetra::Matrix<Scalar,LocalOrdinal,GlobalOrdinal,Node>& Op,
-          bool optimizeTranspose = false,
-          const std::string & label = std::string(),
-          const Teuchos::RCP<Teuchos::ParameterList> &params=Teuchos::null) {
-#include "Xpetra_UseShortNames.hpp"
-#include "MueLu_Exceptions.hpp"
-#if defined(HAVE_MUELU_EPETRA) && defined(HAVE_MUELU_EPETRAEXT)
-  std::string TorE = "epetra";
-#else
-  std::string TorE = "tpetra";
-#endif
-
-#if defined(HAVE_MUELU_EPETRA) && defined(HAVE_MUELU_EPETRAEXT)
-  try {
-    const CrsMatrixWrap& crsOp = dynamic_cast<const CrsMatrixWrap&>(Op);
-    const EpetraCrsMatrix& tmp_ECrsMtx = dynamic_cast<const EpetraCrsMatrix&>(*crsOp.getCrsMatrix());
-    const Epetra_CrsMatrix& epetraOp = *tmp_ECrsMtx.getEpetra_CrsMatrix();
-
-    (void) epetraOp; // silence "unused variable" compiler warning
-  } catch (...) {
-    TorE = "tpetra";
-  }
-#endif
-
-#ifdef HAVE_MUELU_TPETRA
-  if (TorE == "tpetra") {
-    try {
-#if ((defined(EPETRA_HAVE_OMP) && (!defined(HAVE_TPETRA_INST_OPENMP) || !defined(HAVE_TPETRA_INST_INT_INT))) || \
-     (!defined(EPETRA_HAVE_OMP) && (!defined(HAVE_TPETRA_INST_SERIAL) || !defined(HAVE_TPETRA_INST_INT_INT))))
-      throw MueLu::Exceptions::RuntimeError("Op2TpetraCrs: Tpetra has not been compiled with support for LO=GO=int.");
-#else
-      // Get the underlying Tpetra Mtx
-      const CrsMatrixWrap& crsOp = dynamic_cast<const CrsMatrixWrap&>(Op);
-      const Xpetra::TpetraCrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node>& tmp_ECrsMtx = dynamic_cast<const Xpetra::TpetraCrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node>&>(*crsOp.getCrsMatrix());
-      const Tpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>& tpetraOp = *tmp_ECrsMtx.getTpetra_CrsMatrix();
-#endif
-
-      RCP<Tpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > A;
-      Tpetra::RowMatrixTransposer<Scalar, LocalOrdinal, GlobalOrdinal, Node> transposer(Teuchos::rcpFromRef(tpetraOp),label); //more than meets the eye
-      A = transposer.createTranspose(params);
-
-      RCP<Xpetra::TpetraCrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > AA   = Teuchos::rcp(new Xpetra::TpetraCrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>(A) );
-      RCP<Xpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >       AAA  = Teuchos::rcp_implicit_cast<Xpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >(AA);
-      RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >          AAAA = Teuchos::rcp( new Xpetra::CrsMatrixWrap<Scalar, LocalOrdinal, GlobalOrdinal, Node>(AAA) );
-      if (!AAAA->isFillComplete())
-        AAAA->fillComplete(Op.getRangeMap(), Op.getDomainMap());
-
-      if (Op.IsView("stridedMaps"))
-        AAAA->CreateView("stridedMaps", Teuchos::rcpFromRef(Op), true/*doTranspose*/);
-
-      return AAAA;
-
-    } catch (std::exception& e) {
-      std::cout << "threw exception '" << e.what() << "'" << std::endl;
-      throw MueLu::Exceptions::RuntimeError("Utilities::Transpose failed, perhaps because matrix is not a Crs matrix");
-    }
-  } //if
-#endif
-
-  // Epetra case
-  std::cout << "Utilities::Transpose() not implemented for Epetra" << std::endl;
-  return Teuchos::null;
-
-} // Transpose
 
 /*! \brief Transform regional matrix to composite layout
  *
@@ -362,7 +293,10 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
 
 #include "Xpetra_UseShortNames.hpp"
 
+  using MT = typename Teuchos::ScalarTraits<SC>::magnitudeType;
+
   RCP<Teuchos::FancyOStream> fos = Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout));
+  const MT MT_ONE  = Teuchos::ScalarTraits<MT>::one();
   const GO GO_ONE  = Teuchos::OrdinalTraits<GO>::one();
   const GO GO_ZERO = Teuchos::OrdinalTraits<GO>::zero();
   const GO GO_INV  = Teuchos::OrdinalTraits<GO>::invalid();
@@ -373,7 +307,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
   // IDENTIFY DUPLICATED GIDS ON FINE LEVEL
   ////////////////////////////////////////////////////////////////////////
 
-  RCP<Xpetra::Matrix<GO,LO,GO,NO> > summedDuplicateMatrix = Teuchos::null;
+  RCP<Xpetra::Matrix<MT,LO,GO,NO> > summedDuplicateMatrix = Teuchos::null;
 
   Array<std::vector<std::vector<LO> > > interfaceLIDs; // local IDs of interface nodes on each level in each group
   Array<std::vector<std::vector<std::vector<GO> > > > interfaceGIDPairs; // pairs of GIDs of interface nodes on each level in each group
@@ -510,12 +444,12 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     }
 
     // Create and fill matrix
-    RCP<Xpetra::Matrix<GO,LO,GO,NO> > duplicateMatrix
-      = Xpetra::MatrixFactory<GO,LO,GO,NO>::Build(fullDuplicateMap, 2, Xpetra::DynamicProfile);
+    RCP<Xpetra::Matrix<MT,LO,GO,NO> > duplicateMatrix
+      = Xpetra::MatrixFactory<MT,LO,GO,NO>::Build(fullDuplicateMap, 2, Xpetra::DynamicProfile);
     {
       // Fill diagonal
       {
-        Array<GO> vals(1);
+        Array<MT> vals(1);
         Array<GO> cols(1);
         for (size_t i = 0; i < fullDuplicateMap->getNodeNumElements(); ++i) {
           GO globalRow = fullDuplicateMap->getGlobalElement(i);
@@ -528,7 +462,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       }
 
       // Fill off-diagonals (if known)
-      Array<GO> vals(2);
+      Array<MT> vals(2);
       Array<GO> cols(2);
       for (size_t i = 0; i < duplicateMap->getNodeNumElements(); ++i) {
         GO globalRow = duplicateMap->getGlobalElement(i);
@@ -565,8 +499,9 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     //        duplicateMatrix->getColMap()->describe(*fos, Teuchos::VERB_HIGH);
 
     {
-      RCP<Xpetra::Matrix<GO,LO,GO,NO> > transDuplicateMatrix = Transpose(*duplicateMatrix);
-      TEUCHOS_ASSERT(!transDuplicateMatrix.is_null());
+      RCP<Xpetra::Matrix<MT,LO,GO,NO> > transDuplicateMatrix
+        = MueLu::Utilities<MT,LO,GO,NO>::Transpose(*duplicateMatrix);
+      TEUCHOS_ASSERT(Teuchos::nonnull(transDuplicateMatrix));
 
       transDuplicateMatrix->fillComplete();
       TEUCHOS_ASSERT(transDuplicateMatrix->isFillComplete());
@@ -576,15 +511,15 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       //          std::cout << myRank << " | transDuplicateMatrix:" << std::endl;
       //          transDuplicateMatrix->describe(*fos, Teuchos::VERB_HIGH);
 
-      summedDuplicateMatrix = Xpetra::MatrixFactory<GO,LO,GO,NO>::Build(fullDuplicateMap,
+      summedDuplicateMatrix = Xpetra::MatrixFactory<MT,LO,GO,NO>::Build(fullDuplicateMap,
                                                                         2,
                                                                         Xpetra::DynamicProfile);
-      Xpetra::MatrixMatrix<GO,LO,GO,NO>::TwoMatrixAdd(*transDuplicateMatrix,
+      Xpetra::MatrixMatrix<MT,LO,GO,NO>::TwoMatrixAdd(*transDuplicateMatrix,
                                                       false,
-                                                      GO_ONE,
+                                                      MT_ONE,
                                                       *duplicateMatrix,
                                                       false,
-                                                      GO_ONE,
+                                                      MT_ONE,
                                                       summedDuplicateMatrix,
                                                       *fos);
     }
@@ -602,7 +537,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     for (size_t lRow = 0; lRow < summedDuplicateMatrix->getNodeNumRows(); ++lRow) {
 
       ArrayView<const LO> inds;
-      ArrayView<const GO> vals;
+      ArrayView<const MT> vals;
 
       summedDuplicateMatrix->getLocalRowView(lRow, inds, vals);
 
@@ -722,17 +657,17 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
                                                          Comm);
     }
 
-    RCP<Xpetra::Matrix<GO, LO, GO, NO> > duplicateMapping
-      = Xpetra::MatrixFactory<GO, LO, GO, NO>::Build(interfaceMap,
+    RCP<Xpetra::Matrix<MT, LO, GO, NO> > duplicateMapping
+      = Xpetra::MatrixFactory<MT, LO, GO, NO>::Build(interfaceMap,
                                                      2,
                                                      Xpetra::DynamicProfile);
 
     // Fill the matrix
-    RCP<Xpetra::Matrix<GO, LO, GO, NO> > transDuplicateMapping = Teuchos::null;
+    RCP<Xpetra::Matrix<MT, LO, GO, NO> > transDuplicateMapping = Teuchos::null;
     {
       size_t numRows = myDuplicates.size();
       Array<GO> rowPtr(numRows);
-      std::vector<Array<GO> > vals(numRows);
+      std::vector<Array<MT> > vals(numRows);
       std::vector<Array<GO> > colInds(numRows);
 
       for (size_t rowIdx = 0; rowIdx < numRows; ++rowIdx) {
@@ -762,7 +697,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       //          Comm.Barrier();
       //          duplicateMapping->Print(std::cout);
 
-      transDuplicateMapping = Transpose(*duplicateMapping);
+      transDuplicateMapping = MueLu::Utilities<MT,LO,GO,NO>::Transpose(*duplicateMapping);
 
       Comm->barrier();
 
@@ -790,7 +725,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     std::vector<std::vector<GO> > myCoarseInterfaceDuplicates(transDuplicateMapping->getNodeNumRows());
     {
       for (size_t lRow = 0; lRow < transDuplicateMapping->getNodeNumRows(); ++lRow) {
-        ArrayView<const GO> vals;
+        ArrayView<const MT> vals;
         ArrayView<const LO> inds;
         transDuplicateMapping->getLocalRowView(lRow, inds, vals);
 

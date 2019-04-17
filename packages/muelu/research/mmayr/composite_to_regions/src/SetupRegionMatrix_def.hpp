@@ -170,10 +170,13 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdin
    */
 #include "Xpetra_UseShortNames.hpp"
 
-  Teuchos::RCP<MultiVector> partialCompVec = MultiVectorFactory::Build(compVec->getMap(), maxRegPerProc, true);
-  TEUCHOS_ASSERT(!partialCompVec.is_null());
+  std::vector<RCP<Vector> > partialCompVec(maxRegPerProc);
+  for(int grpIdx = 0; grpIdx < maxRegPerProc; ++grpIdx) {
+    partialCompVec[grpIdx] = VectorFactory::Build(compVec->getMap(), true);
+    TEUCHOS_ASSERT(!partialCompVec[grpIdx].is_null());
+  }
 
-  std::vector<Teuchos::RCP<Vector> > quasiRegVec(maxRegPerProc);
+  std::vector<RCP<Vector> > quasiRegVec(maxRegPerProc);
   for (int j = 0; j < maxRegPerProc; j++) {
     // copy vector and replace map
     quasiRegVec[j] = regVec[j]; // Xpetra: operator= mimics copy constructor
@@ -182,12 +185,19 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdin
     quasiRegVec[j]->replaceMap(rowMapPerGrp[j]);
 
     // ToDo (mayr.mt) Use input variable 'combineMode'
-    partialCompVec->getVectorNonConst(j)->doExport(*quasiRegVec[j], *(rowImportPerGrp[j]), Xpetra::ADD);
+    partialCompVec[j]->doExport(*quasiRegVec[j], *(rowImportPerGrp[j]), Xpetra::ADD);
   }
 
+  const size_t compVecLocalLength = compVec->getLocalLength();
   compVec->putScalar(Teuchos::ScalarTraits<Scalar>::zero());
-  for (int j = 0; j < maxRegPerProc; j++) {
-    compVec->update(Teuchos::ScalarTraits<Scalar>::one(), *partialCompVec->getVector(j), Teuchos::ScalarTraits<Scalar>::one());
+  Teuchos::ArrayRCP<Scalar> compVecData = compVec->getDataNonConst(0);
+  for (int grpIdx = 0; grpIdx < maxRegPerProc; ++grpIdx) {
+    TEUCHOS_ASSERT(partialCompVec[grpIdx]->getLocalLength() == compVecLocalLength);
+
+    Teuchos::ArrayRCP<const Scalar> partialCompVecData = partialCompVec[grpIdx]->getData(0);
+    for(size_t entryIdx = 0; entryIdx < compVecLocalLength; ++entryIdx) {
+      compVecData[entryIdx] += partialCompVecData[entryIdx];
+    }
   }
 
   return;
@@ -231,7 +241,7 @@ void MakeGroupRegionRowMaps(const int myRank,
 
     std::vector<int> idx(tempRegIDs.size());
     std::iota(idx.begin(), idx.end(), 0);
-    sort(idx.begin(), idx.end(), [tempRegIDs](int i1,int i2) { return tempRegIDs[i1] < tempRegIDs[i2];});
+    std::sort(idx.begin(), idx.end(), [tempRegIDs](int i1,int i2) { return tempRegIDs[i1] < tempRegIDs[i2];});
 
     for (int i = 0; i < static_cast<int>(AComp->getColMap()->getNodeNumElements()); i++) {
       if (tempRegIDs[idx[i]] != -1)
@@ -407,7 +417,7 @@ void MakeGroupExtendedMaps(const int myRank,
     }
     Teuchos::Array<LocalOrdinal> idx(tempRegIDs.size());
     std::iota(idx.begin(),idx.end(),0);
-    sort(idx.begin(),idx.end(),[tempRegIDs](int i1,int i2){return tempRegIDs[i1] < tempRegIDs[i2];});
+    std::sort(idx.begin(),idx.end(),[tempRegIDs](int i1,int i2){return tempRegIDs[i1] < tempRegIDs[i2];});
 
     // Now sweep through regionsPerGIDWithGhosts looking for those
     // associated with curRegion and record the revisedGID
