@@ -373,23 +373,29 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     //          }
     //        }
 
-    std::vector<RCP<Xpetra::Vector<GO,LO,GO,NO> > > regDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
-    std::vector<RCP<Xpetra::Vector<GO,LO,GO,NO> > > quasiRegDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
+    std::vector<RCP<Xpetra::Vector<MT,LO,GO,NO> > > regDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
+    std::vector<RCP<Xpetra::Vector<MT,LO,GO,NO> > > quasiRegDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
     for (int j = 0; j < maxRegPerProc; ++j) {
-      regDupGIDVec[j] = Xpetra::VectorFactory<GO,LO,GO,NO>::Build(regRowMaps[l][j], true);
-      quasiRegDupGIDVec[j] = Xpetra::VectorFactory<GO,LO,GO,NO>::Build(quasiRegRowMaps[l][j], true);
+      regDupGIDVec[j] = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(regRowMaps[l][j], true);
+      quasiRegDupGIDVec[j] = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(quasiRegRowMaps[l][j], true);
 
       for (std::size_t i = 0; i < interfaceLIDs[l][j].size(); ++i)
         regDupGIDVec[j]->replaceLocalValue(interfaceLIDs[l][j][i], GO_ONE);
     }
 
-    RCP<Xpetra::Vector<GO,LO,GO,NO> > compDupGIDVec
-      = Xpetra::VectorFactory<GO,LO,GO,NO>::Build(compRowMaps[l], true);
+    RCP<Xpetra::Vector<MT,LO,GO,NO> > compDupGIDVec
+      = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(compRowMaps[l], true);
     regionalToComposite(regDupGIDVec, compDupGIDVec, maxRegPerProc,
                         quasiRegRowMaps[l], regRowImporters[l], Xpetra::ADD);
 
+    std::cout << "p=" << Comm->getRank()
+              << " | First regional to composite completed on level " << l << " !" << std::endl;
+
     compositeToRegional(compDupGIDVec, quasiRegDupGIDVec, regDupGIDVec,
                         maxRegPerProc, quasiRegRowMaps[l], regRowMaps[l], regRowImporters[l]);
+
+    std::cout << "p=" << Comm->getRank()
+              << " | First composite to regional completed on level " << l << " !" << std::endl;
 
     // create row/range/domain map for fine level duplicates mapping matrix
     RCP<Xpetra::Map<LO,GO,NO> > duplicateMap = Teuchos::null;
@@ -416,11 +422,14 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       //          duplicateMap->describe(*fos, Teuchos::VERB_HIGH);
     }
 
+    std::cout << "p=" << Comm->getRank()
+              << " | duplicateMap created on level " << l << " !" << std::endl;
+
     // create row/range/domain map for the transpose of the fine level duplicates mapping matrix
     RCP<Xpetra::Map<LO,GO,NO> > fullDuplicateMap = Teuchos::null;
     {
       Array<GO> myIntGIDs;
-      ArrayRCP<const GO> regDupGIDVecData = regDupGIDVec[0]->getData(0);
+      ArrayRCP<const MT> regDupGIDVecData = regDupGIDVec[0]->getData(0);
       for (size_t i = 0; i < regRowMaps[l][0]->getNodeNumElements(); ++i) {
         if (regDupGIDVecData[i] != 0)
           myIntGIDs.push_back(Teuchos::as<GO>(regRowMaps[l][0]->getGlobalElement(i)));
@@ -443,9 +452,12 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       //          fullDuplicateMap->describe(*fos, TEUCHOS::VERB_HIGH);
     }
 
+    std::cout << "p=" << Comm->getRank()
+              << " | fullDuplicateMap created on level " << l << " !" << std::endl;
+
     // Create and fill matrix
     RCP<Xpetra::Matrix<MT,LO,GO,NO> > duplicateMatrix
-      = Xpetra::MatrixFactory<MT,LO,GO,NO>::Build(fullDuplicateMap, 2, Xpetra::DynamicProfile);
+      = Xpetra::MatrixFactory<MT,LO,GO,NO>::Build(fullDuplicateMap, 2, Xpetra::StaticProfile);
     {
       // Fill diagonal
       {
@@ -477,6 +489,9 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
     }
 
     duplicateMatrix->fillComplete();
+
+    std::cout << "p=" << Comm->getRank()
+              << " | duplicateMatrix created and fillComplete() on level " << l << " !" << std::endl;
 
     //        sleep(1);
     //        Comm->barrier();
@@ -526,6 +541,9 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
 
     summedDuplicateMatrix->fillComplete(fullDuplicateMap, fullDuplicateMap);
     //        summedDuplicateMatrix->fillComplete();
+
+    std::cout << "p=" << Comm->getRank()
+              << " | summedDuplicateMatrix created and fillComplete() on level " << l << " !" << std::endl;
 
     //        sleep(1);
     //        Comm->barrier();

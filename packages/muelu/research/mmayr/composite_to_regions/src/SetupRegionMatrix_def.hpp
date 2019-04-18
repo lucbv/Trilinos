@@ -79,6 +79,8 @@ std::vector<int> findCommonRegions(const GlobalOrdinal nodeA, ///< GID of first 
                                    )
 {
 #include "Xpetra_UseShortNamesOrdinal.hpp"
+  std::cout << "p=" << nodesToRegions.getMap()->getComm()->getRank()
+            << " | findCommonRegions(nodeA=" << nodeA << ", nodeB=" << nodeB << ", ...)" << std::endl;
   // extract node-to-regions mapping for both nodes A and B
   Array<int> regionsA;
   Array<int> regionsB;
@@ -170,35 +172,36 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdin
    */
 #include "Xpetra_UseShortNames.hpp"
 
-  std::vector<RCP<Vector> > partialCompVec(maxRegPerProc);
-  for(int grpIdx = 0; grpIdx < maxRegPerProc; ++grpIdx) {
-    partialCompVec[grpIdx] = VectorFactory::Build(compVec->getMap(), true);
-    TEUCHOS_ASSERT(!partialCompVec[grpIdx].is_null());
-  }
+  const SC SC_ZERO = Teuchos::ScalarTraits<Scalar>::zero();
 
-  std::vector<RCP<Vector> > quasiRegVec(maxRegPerProc);
-  for (int j = 0; j < maxRegPerProc; j++) {
-    // copy vector and replace map
-    quasiRegVec[j] = regVec[j]; // Xpetra: operator= mimics copy constructor
-    TEUCHOS_ASSERT(!quasiRegVec[j].is_null());
-
-    quasiRegVec[j]->replaceMap(rowMapPerGrp[j]);
-
-    // ToDo (mayr.mt) Use input variable 'combineMode'
-    partialCompVec[j]->doExport(*quasiRegVec[j], *(rowImportPerGrp[j]), Xpetra::ADD);
-  }
+  std::cout << "p=" << compVec->getMap()->getComm()->getRank() << " | Hello!!!!!!!!!!!!!!" << std::endl;
 
   const size_t compVecLocalLength = compVec->getLocalLength();
-  compVec->putScalar(Teuchos::ScalarTraits<Scalar>::zero());
-  Teuchos::ArrayRCP<Scalar> compVecData = compVec->getDataNonConst(0);
-  for (int grpIdx = 0; grpIdx < maxRegPerProc; ++grpIdx) {
-    TEUCHOS_ASSERT(partialCompVec[grpIdx]->getLocalLength() == compVecLocalLength);
+  compVec->putScalar(SC_ZERO);
 
-    Teuchos::ArrayRCP<const Scalar> partialCompVecData = partialCompVec[grpIdx]->getData(0);
-    for(size_t entryIdx = 0; entryIdx < compVecLocalLength; ++entryIdx) {
-      compVecData[entryIdx] += partialCompVecData[entryIdx];
+  {
+    RCP<Vector> quasiRegVec;
+    for(int grpIdx = 0; grpIdx < maxRegPerProc; ++grpIdx) {
+      quasiRegVec = regVec[grpIdx];
+      TEUCHOS_ASSERT(Teuchos::nonnull(quasiRegVec));
+      quasiRegVec->replaceMap(rowImportPerGrp[grpIdx]->getTargetMap());
+
+      RCP<Vector> partialCompVec = VectorFactory::Build(rowImportPerGrp[0]->getSourceMap(), true);
+      TEUCHOS_ASSERT(Teuchos::nonnull(partialCompVec));
+      TEUCHOS_ASSERT(partialCompVec->getLocalLength() == compVecLocalLength);
+      // ToDo (mayr.mt) Use input variable 'combineMode'
+      partialCompVec->doExport(*quasiRegVec, *(rowImportPerGrp[grpIdx]), Xpetra::ADD);
+
+      Teuchos::ArrayRCP<const SC> partialCompVecData = partialCompVec->getData(0);
+      std::cout << "p=" << compVec->getMap()->getComm()->getRank() << " | partialCompVecData:"
+                << partialCompVecData() << std::endl;
+      for(size_t entryIdx = 0; entryIdx < compVecLocalLength; ++entryIdx) {
+        compVec->sumIntoLocalValue(static_cast<LO>(entryIdx), partialCompVecData[entryIdx]);
+      }
     }
   }
+
+  std::cout << "p=" << compVec->getMap()->getComm()->getRank() << " | Bye-Bye!!!!!!!!!!!!!!" << std::endl;
 
   return;
 }
