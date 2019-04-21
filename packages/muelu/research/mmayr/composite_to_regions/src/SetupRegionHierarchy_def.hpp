@@ -343,12 +343,12 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
       }
     }
 
-    //        for (int j = 0; j < maxRegPerProc; j++) {
-    //          std::cout << myRank << " | group = " << j << " | LIDs = ";
-    //          for (std::size_t i = 0; i < interfaceLIDs[l][j].size(); ++i)
-    //            std::cout << interfaceLIDs[l][j][i] << ", ";
-    //          std::cout << std::endl;
-    //        }
+    for (int j = 0; j < maxRegPerProc; j++) {
+      std::cout << "p=" << Comm->getRank() << " | group = " << j << " | LIDs = ";
+      for (std::size_t i = 0; i < interfaceLIDs[l][j].size(); ++i)
+        std::cout << interfaceLIDs[l][j][i] << ", ";
+      std::cout << std::endl;
+    }
 
     for (int j = 0; j < maxRegPerProc; j++)
       interfaceGIDPairs[l][j].resize(interfaceLIDs[l][j].size());
@@ -362,16 +362,16 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
         if (regRowMaps[l][j]->getGlobalElement(interfaceLIDs[l][j][i]) != quasiRegRowMaps[l][j]->getGlobalElement(interfaceLIDs[l][j][i]))
           interfaceGIDPairs[l][j][i].push_back(regRowMaps[l][j]->getGlobalElement(interfaceLIDs[l][j][i]));
 
-    //        std::cout << myRank << " | Print interfaceGIDPairs:" << std::endl;
-    //        for (int j = 0; j < maxRegPerProc; j++) {
-    //          std::cout << myRank << " | " << "Level " << l <<" | Group " << j << ":" << std::endl;
-    //          for (std::size_t i = 0; i < interfaceGIDPairs[l][j].size(); ++i) {
-    //            std::cout << "   " << myRank << " | ";
-    //            for (std::size_t k = 0; k < interfaceGIDPairs[l][j][i].size(); ++k)
-    //              std::cout << interfaceGIDPairs[l][j][i][k] << ", ";
-    //            std::cout << std::endl;
-    //          }
-    //        }
+    std::cout << "p=" << Comm->getRank() << " | Print interfaceGIDPairs:" << std::endl;
+    for (int j = 0; j < maxRegPerProc; j++) {
+      std::cout << "p=" << Comm->getRank() << " | " << "Level " << l <<" | Group " << j << ":" << std::endl;
+      for (std::size_t i = 0; i < interfaceGIDPairs[l][j].size(); ++i) {
+        std::cout << "p=" << Comm->getRank() << "    | ";
+        for (std::size_t k = 0; k < interfaceGIDPairs[l][j][i].size(); ++k)
+          std::cout << interfaceGIDPairs[l][j][i][k] << ", ";
+        std::cout << std::endl;
+      }
+    }
 
     std::vector<RCP<Xpetra::Vector<MT,LO,GO,NO> > > regDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
     std::vector<RCP<Xpetra::Vector<MT,LO,GO,NO> > > quasiRegDupGIDVec(maxRegPerProc); // Vector with zeros everywhere, but ones at duplicated GID spots
@@ -929,6 +929,54 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
   }
 } // MakeCoarseLevelMaps
 
+template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+void MakeCoarseLevelMaps2(const int maxRegPerGID,
+                          Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowMaps,
+                          Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& quasiregRowMaps,
+                          Array<std::vector<RCP<Xpetra::Import<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowImporters,
+                          Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong,
+                          Teuchos::ArrayView<GlobalOrdinal> sendGIDs,
+                          Teuchos::ArrayView<int>           sendPIDs,
+                          Teuchos::ArrayView<LocalOrdinal>  compositeToRegionLIDs,
+                          Teuchos::ArrayView<GlobalOrdinal> receiveGIDs,
+                          Teuchos::ArrayView<int> receivePIDs) {
+
+#include "Xpetra_UseShortNames.hpp"
+
+  using MT = typename Teuchos::ScalarTraits<SC>::magnitudeType;
+
+  RCP<const Teuchos::Comm<int> > comm = regProlong[1][0]->getRowMap()->getComm();
+  const int numLevels = regProlong.size();
+  const size_t numCompositeNodes = compositeToRegionLIDs.size();
+
+  std::cout << "p=" << comm->getRank() << " | Starting MakeCoarseLevelMaps2" << std::endl;
+  std::cout << "p=" << comm->getRank() << " | numLevels=" << numLevels << std::endl;
+
+  RCP<Xpetra::Vector<MT,LO,GO,NO> > coarseCompositeGIDs
+    = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(regRowImporters[0][0]->getSourceMap(), false);
+  Teuchos::ArrayRCP<MT> coarseCompositeGIDsData = coarseCompositeGIDs->getDataNonConst(0);
+
+  for(size_t compositeNodeIdx = 0; compositeNodeIdx < numCompositeNodes; ++compositeNodeIdx) {
+    ArrayView<const LO> coarseRegionLID; // Should contain a single value
+    ArrayView<const SC> dummyData; // Should contain a single value
+    regProlong[1][0]->getLocalRowView(compositeToRegionLIDs[compositeNodeIdx],
+                                      coarseRegionLID,
+                                      dummyData);
+    coarseCompositeGIDsData[compositeNodeIdx] = regProlong[1][0]->getColMap()->getGlobalElement(coarseRegionLID[0]);
+  }
+
+  if(comm->getRank() == 0) {std::cout << "coarseCompositeGIDs:" << std::endl;}
+  coarseCompositeGIDs->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+  std::vector<RCP<Xpetra::Vector<MT, LO, GO, NO> > > coarseQuasiregionGIDs(1), coarseRegionGIDs(1);
+  compositeToRegional(coarseCompositeGIDs, coarseQuasiregionGIDs, coarseRegionGIDs, 1,
+    quasiregRowMaps[0], regRowMaps[0], regRowImporters[0]);
+
+  if(comm->getRank() == 0) {std::cout << "coarseQuasiregionGIDs:" << std::endl;}
+  coarseQuasiregionGIDs[0]->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+} // MakeCoarseLevelMaps2
+
 
 // Form the composite coarse level operator
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -1025,7 +1073,13 @@ void createRegionHierarchy(const int maxRegPerProc,
                            Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong,
                            Array<std::vector<RCP<Xpetra::Import<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowImporters,
                            Array<std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regInterfaceScalings,
-                           RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >& coarseCompOp)
+                           RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >& coarseCompOp,
+                           const int maxRegPerGID = 0,
+                           ArrayView<GlobalOrdinal> sendGIDs = {},
+                           ArrayView<int> sendPIDs = {},
+                           ArrayView<LocalOrdinal> compositeToRegionLIDs = {},
+                           ArrayView<GlobalOrdinal> receiveGIDs = {},
+                           ArrayView<int> receivePIDs = {})
 {
 #include "Xpetra_UseShortNames.hpp"
 
@@ -1062,6 +1116,8 @@ void createRegionHierarchy(const int maxRegPerProc,
     regGrpHierarchy[j] = MueLu::CreateXpetraPreconditioner(regionGrpMats[j], *mueluParams, coordinates[j], nullspace[j]);
   }
 
+  std::cout << mapComp->getComm()->getRank() << " | Resize containers..." << std::endl;
+
   // resize Arrays and vectors
   {
     // resize level containers
@@ -1090,6 +1146,8 @@ void createRegionHierarchy(const int maxRegPerProc,
     }
   }
 
+  std::cout << mapComp->getComm()->getRank() << " | Fill fine level containers..." << std::endl;
+
   // Fill fine level with our data
   {
     compRowMaps[0] = mapComp;
@@ -1110,6 +1168,8 @@ void createRegionHierarchy(const int maxRegPerProc,
     regProlong[0] = fineLevelProlong;
   }
 
+  std::cout << mapComp->getComm()->getRank() << " | Fill coarser level containers..." << std::endl;
+
   /* Get coarse level matrices and prolongators from MueLu hierarchy
    * Note: fine level has been dealt with previously, so we start at level 1 here.
    */
@@ -1125,38 +1185,49 @@ void createRegionHierarchy(const int maxRegPerProc,
     }
   }
 
-  std::cout << mapComp->getComm()->getRank() << " | MakeCoarseLevelMaps ..." << std::endl;
+  // std::cout << mapComp->getComm()->getRank() << " | MakeCoarseLevelMaps ..." << std::endl;
 
-  MakeCoarseLevelMaps(maxRegPerProc,
-                      numLevels,
-                      compRowMaps,
-                      regRowMaps,
-                      quasiRegRowMaps,
-                      regColMaps,
-                      quasiRegColMaps,
-                      regRowImporters,
-                      regProlong);
+  MakeCoarseLevelMaps2(maxRegPerGID,
+                       regRowMaps,
+                       quasiRegRowMaps,
+                       regRowImporters,
+                       regProlong,
+                       sendGIDs,
+                       sendPIDs,
+                       compositeToRegionLIDs,
+                       receiveGIDs,
+                       receivePIDs);
 
-  std::cout << mapComp->getComm()->getRank() << " | MakeCoarseCompositeOperator ..." << std::endl;
+  // MakeCoarseLevelMaps(maxRegPerProc,
+  //                     numLevels,
+  //                     compRowMaps,
+  //                     regRowMaps,
+  //                     quasiRegRowMaps,
+  //                     regColMaps,
+  //                     quasiRegColMaps,
+  //                     regRowImporters,
+  //                     regProlong);
 
-  MakeCoarseCompositeOperator(maxRegPerProc,
-                              numLevels,
-                              compRowMaps,
-                              quasiRegRowMaps,
-                              quasiRegColMaps,
-                              regRowImporters,
-                              regMatrices,
-                              coarseCompOp);
+  // std::cout << mapComp->getComm()->getRank() << " | MakeCoarseCompositeOperator ..." << std::endl;
 
-  std::cout << mapComp->getComm()->getRank() << " | MakeInterfaceScalingFactors ..." << std::endl;
+  // MakeCoarseCompositeOperator(maxRegPerProc,
+  //                             numLevels,
+  //                             compRowMaps,
+  //                             quasiRegRowMaps,
+  //                             quasiRegColMaps,
+  //                             regRowImporters,
+  //                             regMatrices,
+  //                             coarseCompOp);
 
-  MakeInterfaceScalingFactors(maxRegPerProc,
-                              numLevels,
-                              compRowMaps,
-                              regInterfaceScalings,
-                              regRowMaps,
-                              regRowImporters,
-                              quasiRegRowMaps);
+  // std::cout << mapComp->getComm()->getRank() << " | MakeInterfaceScalingFactors ..." << std::endl;
+
+  // MakeInterfaceScalingFactors(maxRegPerProc,
+  //                             numLevels,
+  //                             compRowMaps,
+  //                             regInterfaceScalings,
+  //                             regRowMaps,
+  //                             regRowImporters,
+  //                             quasiRegRowMaps);
 } // createRegionHierarchy
 
 

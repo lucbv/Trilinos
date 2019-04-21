@@ -395,14 +395,17 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   LO numReceive = 0, numSend = 0;
   Teuchos::Array<GO>  receiveGIDs;
   Teuchos::Array<int> receivePIDs;
+  Teuchos::Array<LO>  receiveLIDs;
   Teuchos::Array<GO>  sendGIDs;
   Teuchos::Array<int> sendPIDs;
+  Teuchos::Array<LO>  sendLIDs;
   if(numDimensions == 1) {
     maxRegPerGID = 2;
     if(leftBC == 0) {
       numReceive = 1;
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       receiveGIDs[0] = startIndices[0] - 1;
       receivePIDs[0] = myRank - 1;
@@ -411,9 +414,11 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = 1;
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       sendGIDs[0] = endIndices[0];
       sendGIDs[0] = myRank + 1;
+      sendLIDs[0] = lNodesPerDim[0] - 1;
     }
   } else if(numDimensions == 2) {
     maxRegPerGID = 4;
@@ -422,6 +427,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[0] + lNodesPerDim[1] + 1;
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front-left corner node
@@ -444,6 +450,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[0];
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front edge nodes
@@ -456,6 +463,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[1];
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive left edge nodes
@@ -471,47 +479,55 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = lNodesPerDim[0] + lNodesPerDim[1] + 1;
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right edge
       for(LO j = 0; j < lNodesPerDim[1]; ++j) {
         sendGIDs[countIDs] = j*gNodesPerDim[0] + startGID + lNodesPerDim[0] - 1;
         sendPIDs[countIDs] = myRank + 1;
+        sendLIDs[countIDs] = (j + 1)*lNodesPerDim[0] - 1;
         ++countIDs;
       }
       // Send nodes of back edge
       for(LO i = 0; i < lNodesPerDim[0]; ++i) {
         sendGIDs[countIDs] = i + startGID + (lNodesPerDim[1] - 1)*gNodesPerDim[0];
         sendPIDs[countIDs] = myRank + procsPerDim[0];
+        sendLIDs[countIDs] = (lNodesPerDim[1] - 1)*lNodesPerDim[0] + i;
         ++countIDs;
       }
       // Send node of back-right corner
       sendGIDs[countIDs] = startGID + (lNodesPerDim[1] - 1)*gNodesPerDim[0] + lNodesPerDim[0] - 1;
       sendPIDs[countIDs] = myRank + procsPerDim[1] + 1;
+      sendLIDs[countIDs] = lNodesPerDim[1]*lNodesPerDim[0] - 1;
       ++countIDs;
     } else if(backBC == 0) {
       numSend = lNodesPerDim[0];
 
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of back edge
       for(LO i = 0; i < lNodesPerDim[0]; ++i) {
         sendGIDs[countIDs] = i + startGID + (lNodesPerDim[1] - 1)*gNodesPerDim[0];
         sendPIDs[countIDs] = myRank + procsPerDim[0];
+        sendLIDs[countIDs] = (lNodesPerDim[1] - 1)*lNodesPerDim[0] + i;
         ++countIDs;
       }
     } else if(rightBC == 0) {
       numSend = lNodesPerDim[1];
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right edge
       for(LO j = 0; j < lNodesPerDim[1]; ++j) {
         sendGIDs[countIDs] = j*gNodesPerDim[0] + startGID + lNodesPerDim[0] - 1;
         sendPIDs[countIDs] = myRank + 1;
+        sendLIDs[countIDs] = (j + 1)*lNodesPerDim[0] - 1;
         ++countIDs;
       }
     }
@@ -524,6 +540,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         + (lNodesPerDim[1] + 1)*(lNodesPerDim[2] + 1); // left face
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front-left-bottom corner node
@@ -589,6 +606,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         + lNodesPerDim[0]*(lNodesPerDim[2] + 1);       // front face;
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front-bottom edge nodes
@@ -622,6 +640,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[1]*(lNodesPerDim[0] + lNodesPerDim[2] + 1);
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive left-bottom edge nodes
@@ -654,6 +673,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[2]*(lNodesPerDim[1] + lNodesPerDim[0] + 1);
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front-left edge nodes
@@ -687,6 +707,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[0]*lNodesPerDim[1];
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive bottom face nodes
@@ -703,6 +724,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[0]*lNodesPerDim[2];
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Receive front face nodes
@@ -719,6 +741,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numReceive = lNodesPerDim[1]*lNodesPerDim[2];
       receiveGIDs.resize(numReceive);
       receivePIDs.resize(numReceive);
+      receiveLIDs.resize(numReceive);
 
       LO countIDs = 0;
       // Recive left face nodes
@@ -744,6 +767,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         + 1;
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right face
@@ -808,6 +832,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
               + (lNodesPerDim[0]); // top-back edge
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of back face
@@ -843,6 +868,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
               + (lNodesPerDim[1]); // top-right edge
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right face
@@ -876,6 +902,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = lNodesPerDim[2]*(lNodesPerDim[0] + lNodesPerDim[1] + 1);
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right face
@@ -908,6 +935,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = lNodesPerDim[0]*lNodesPerDim[1];
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of top face
@@ -924,6 +952,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = lNodesPerDim[0]*lNodesPerDim[2];
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of back face
@@ -940,6 +969,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
       numSend = lNodesPerDim[1]*lNodesPerDim[2];
       sendGIDs.resize(numSend);
       sendPIDs.resize(numSend);
+      sendLIDs.resize(numSend);
 
       LO countIDs = 0;
       // Send nodes of right face
@@ -981,6 +1011,8 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   std::cout << "p=" << myRank << " | numLocalRegionNodes=" << numLocalRegionNodes
             << ", rNodesPerDim: " << rNodesPerDim << std::endl;
 
+  Array<LO> compositeToRegionLIDs(nodeMap->getNodeNumElements());
+
   // Using receiveGIDs, rNodesPerDim and numLocalRegionNodes, build quasi-region row map
   // This will potentially be done by the application or in a MueLu interface but for now
   // doing it in the driver seem to avoid design hassle...
@@ -1001,6 +1033,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         quasiRegionGIDs[nodeRegionIdx*numDofsPerNode + dof] =
           receiveGIDs[interfaceCount]*numDofsPerNode + dof;
       }
+      receiveLIDs[interfaceCount] = nodeRegionIdx;
       ++interfaceCount;
     } else {
       compositeIdx = (regionIJK[2] + bottomBC - 1)*lNodesPerDim[1]*lNodesPerDim[0]
@@ -1010,13 +1043,17 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
         quasiRegionGIDs[nodeRegionIdx*numDofsPerNode + dof]
           = dofMap->getGlobalElement(compositeIdx*numDofsPerNode + dof);
       }
+      compositeToRegionLIDs[compositeIdx] = nodeRegionIdx;
     }
   }
 
+  std::cout << "p=" << myRank << " | receiveLIDs: " << receiveLIDs() << std::endl;
+  std::cout << "p=" << myRank << " | sendLIDs: " << sendLIDs() << std::endl;
+  std::cout << "p=" << myRank << " | compositeToRegionLIDs: " << compositeToRegionLIDs() << std::endl;
   std::cout << "p=" << myRank << " | quasiRegionGIDs: " << quasiRegionGIDs << std::endl;
 
   // In our very particular case we know that a node is at most shared by 4 regions.
-  // Other geometris will certainly have different constrains and a parallel reduction using MAX
+  // Other geometries will certainly have different constrains and a parallel reduction using MAX
   // would be appropriate.
   RCP<Xpetra::MultiVector<LO, LO, GO, NO> > regionsPerGID
     = Xpetra::MultiVectorFactory<LO, LO, GO, NO>::Build(dofMap, maxRegPerGID, false);
@@ -1182,116 +1219,122 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
                         regProlong,
                         regRowImporters,
                         regInterfaceScalings,
-                        coarseCompOp);
+                        coarseCompOp,
+                        maxRegPerGID,
+                        sendGIDs(),
+                        sendPIDs(),
+                        compositeToRegionLIDs(),
+                        receiveGIDs(),
+                        receivePIDs());
 
 
-  comm->barrier();
-  tm = Teuchos::null;
+  // comm->barrier();
+  // tm = Teuchos::null;
 
-  tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 5 - Solve with V-cycle")));
+  // tm = rcp(new TimeMonitor(*TimeMonitor::getNewTimer("Driver: 5 - Solve with V-cycle")));
 
-  {
-    std::cout << myRank << " | Running V-cycle ..." << std::endl;
+  // {
+  //   std::cout << myRank << " | Running V-cycle ..." << std::endl;
 
-    // Extract the number of levels from the prolongator data structure
-    int numLevels = regProlong.size();
+  //   // Extract the number of levels from the prolongator data structure
+  //   int numLevels = regProlong.size();
 
-    TEUCHOS_TEST_FOR_EXCEPT_MSG(!(numLevels>0), "We require numLevel > 0. Probably, numLevel has not been set, yet.");
+  //   TEUCHOS_TEST_FOR_EXCEPT_MSG(!(numLevels>0), "We require numLevel > 0. Probably, numLevel has not been set, yet.");
 
-    /* We first use the non-level container variables to setup the fine grid problem.
-     * This is ok since the initial setup just mimics the application and the outer
-     * Krylov method.
-     *
-     * We switch to using the level container variables as soon as we enter the
-     * recursive part of the algorithm.
-     */
+  //   /* We first use the non-level container variables to setup the fine grid problem.
+  //    * This is ok since the initial setup just mimics the application and the outer
+  //    * Krylov method.
+  //    *
+  //    * We switch to using the level container variables as soon as we enter the
+  //    * recursive part of the algorithm.
+  //    */
 
-    // residual vector
-    RCP<Vector> compRes = VectorFactory::Build(dofMap, true);
-    {
-      A->apply(*X, *compRes, Teuchos::NO_TRANS);
-      compRes->update(one, *B, -one);
-    }
+  //   // residual vector
+  //   RCP<Vector> compRes = VectorFactory::Build(dofMap, true);
+  //   {
+  //     A->apply(*X, *compRes, Teuchos::NO_TRANS);
+  //     compRes->update(one, *B, -one);
+  //   }
 
-    // transform composite vectors to regional layout
-    std::vector<Teuchos::RCP<Vector> > quasiRegX(maxRegPerProc);
-    std::vector<Teuchos::RCP<Vector> > regX(maxRegPerProc);
-    compositeToRegional(X, quasiRegX, regX, maxRegPerProc, rowMapPerGrp,
-                        revisedRowMapPerGrp, rowImportPerGrp);
+  //   // transform composite vectors to regional layout
+  //   std::vector<Teuchos::RCP<Vector> > quasiRegX(maxRegPerProc);
+  //   std::vector<Teuchos::RCP<Vector> > regX(maxRegPerProc);
+  //   compositeToRegional(X, quasiRegX, regX, maxRegPerProc, rowMapPerGrp,
+  //                       revisedRowMapPerGrp, rowImportPerGrp);
 
-    std::vector<RCP<Vector> > quasiRegB(maxRegPerProc);
-    std::vector<RCP<Vector> > regB(maxRegPerProc);
-    compositeToRegional(B, quasiRegB, regB, maxRegPerProc, rowMapPerGrp,
-                        revisedRowMapPerGrp, rowImportPerGrp);
+  //   std::vector<RCP<Vector> > quasiRegB(maxRegPerProc);
+  //   std::vector<RCP<Vector> > regB(maxRegPerProc);
+  //   compositeToRegional(B, quasiRegB, regB, maxRegPerProc, rowMapPerGrp,
+  //                       revisedRowMapPerGrp, rowImportPerGrp);
 
-    //    printRegionalObject<Vector>("regB 0", regB, myRank, *fos);
+  //   //    printRegionalObject<Vector>("regB 0", regB, myRank, *fos);
 
-    std::vector<RCP<Vector> > regRes(maxRegPerProc);
-    for (int j = 0; j < maxRegPerProc; j++) { // step 1
-      regRes[j] = VectorFactory::Build(revisedRowMapPerGrp[j], true);
-    }
+  //   std::vector<RCP<Vector> > regRes(maxRegPerProc);
+  //   for (int j = 0; j < maxRegPerProc; j++) { // step 1
+  //     regRes[j] = VectorFactory::Build(revisedRowMapPerGrp[j], true);
+  //   }
 
-    /////////////////////////////////////////////////////////////////////////
-    // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
-    /////////////////////////////////////////////////////////////////////////
+  //   /////////////////////////////////////////////////////////////////////////
+  //   // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
+  //   /////////////////////////////////////////////////////////////////////////
 
-    // define max iteration counts
-    const int maxVCycle = 200;
-    const int maxFineIter = 20;
-    const int maxCoarseIter = 100;
-    const double omega = 0.67;
+  //   // define max iteration counts
+  //   const int maxVCycle = 200;
+  //   const int maxFineIter = 20;
+  //   const int maxCoarseIter = 100;
+  //   const double omega = 0.67;
 
-    // Prepare output of residual norm to file
-    RCP<std::ofstream> log;
-    if (myRank == 0)
-      {
-        std::string s = "residual_norm.txt";
-        log = rcp(new std::ofstream(s.c_str()));
-        (*log) << "# num procs = " << dofMap->getComm()->getSize() << "\n"
-               << "# iteration | res-norm\n"
-               << "#\n";
-      }
+  //   // Prepare output of residual norm to file
+  //   RCP<std::ofstream> log;
+  //   if (myRank == 0)
+  //     {
+  //       std::string s = "residual_norm.txt";
+  //       log = rcp(new std::ofstream(s.c_str()));
+  //       (*log) << "# num procs = " << dofMap->getComm()->getSize() << "\n"
+  //              << "# iteration | res-norm\n"
+  //              << "#\n";
+  //     }
 
-    // Richardson iterations
-    for (int cycle = 0; cycle < maxVCycle; ++cycle) {
-      // check for convergence
-      {
-        ////////////////////////////////////////////////////////////////////////
-        // SWITCH BACK TO NON-LEVEL VARIABLES
-        ////////////////////////////////////////////////////////////////////////
+  //   // Richardson iterations
+  //   for (int cycle = 0; cycle < maxVCycle; ++cycle) {
+  //     // check for convergence
+  //     {
+  //       ////////////////////////////////////////////////////////////////////////
+  //       // SWITCH BACK TO NON-LEVEL VARIABLES
+  //       ////////////////////////////////////////////////////////////////////////
 
-        computeResidual(regRes, regX, regB, regionGrpMats, dofMap,
-                        rowMapPerGrp, revisedRowMapPerGrp, rowImportPerGrp);
+  //       computeResidual(regRes, regX, regB, regionGrpMats, dofMap,
+  //                       rowMapPerGrp, revisedRowMapPerGrp, rowImportPerGrp);
 
-        //        printRegionalObject<Vector>("regB 1", regB, myRank, *fos);
+  //       //        printRegionalObject<Vector>("regB 1", regB, myRank, *fos);
 
-        compRes = VectorFactory::Build(dofMap, true);
-        regionalToComposite(regRes, compRes, maxRegPerProc, rowMapPerGrp,
-                            rowImportPerGrp, Xpetra::ADD);
-        typename Teuchos::ScalarTraits<Scalar>::magnitudeType normRes = compRes->norm2();
+  //       compRes = VectorFactory::Build(dofMap, true);
+  //       regionalToComposite(regRes, compRes, maxRegPerProc, rowMapPerGrp,
+  //                           rowImportPerGrp, Xpetra::ADD);
+  //       typename Teuchos::ScalarTraits<Scalar>::magnitudeType normRes = compRes->norm2();
 
-        // Output current residual norm to screen (on proc 0 only)
-        if (myRank == 0)
-          {
-            std::cout << cycle << "\t" << normRes << std::endl;
-            (*log) << cycle << "\t" << normRes << "\n";
-          }
+  //       // Output current residual norm to screen (on proc 0 only)
+  //       if (myRank == 0)
+  //         {
+  //           std::cout << cycle << "\t" << normRes << std::endl;
+  //           (*log) << cycle << "\t" << normRes << "\n";
+  //         }
 
-        if (normRes < 1.0e-12)
-          break;
-      }
+  //       if (normRes < 1.0e-12)
+  //         break;
+  //     }
 
-      /////////////////////////////////////////////////////////////////////////
-      // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
-      /////////////////////////////////////////////////////////////////////////
+  //     /////////////////////////////////////////////////////////////////////////
+  //     // SWITCH TO RECURSIVE STYLE --> USE LEVEL CONTAINER VARIABLES
+  //     /////////////////////////////////////////////////////////////////////////
 
-      //      printRegionalObject<Vector>("regB 2", regB, myRank, *fos);
-      vCycle(0, numLevels, maxFineIter, maxCoarseIter, omega, maxRegPerProc, regX, regB,
-             regMatrices,
-             regProlong, compRowMaps, quasiRegRowMaps, regRowMaps, regRowImporters,
-             regInterfaceScalings, coarseCompOp);
-    }
-  }
+  //     //      printRegionalObject<Vector>("regB 2", regB, myRank, *fos);
+  //     vCycle(0, numLevels, maxFineIter, maxCoarseIter, omega, maxRegPerProc, regX, regB,
+  //            regMatrices,
+  //            regProlong, compRowMaps, quasiRegRowMaps, regRowMaps, regRowImporters,
+  //            regInterfaceScalings, coarseCompOp);
+  //   }
+  // }
 
   comm->barrier();
   tm = Teuchos::null;
