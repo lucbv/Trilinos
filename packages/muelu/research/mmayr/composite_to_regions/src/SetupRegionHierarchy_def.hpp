@@ -158,8 +158,6 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdin
     }
   }
 
-  std::cout << "regionalToComposite: quasiRegionCrsMat is now fillComplete" << std::endl;
-
   // Export from quasiRegional format to composite layout
   std::vector<RCP<Matrix> > partialCompMat(maxRegPerProc);
   for (int j = 0; j < maxRegPerProc; j++) {
@@ -938,11 +936,7 @@ void MakeCoarseLevelMaps(const int maxRegPerProc, const int numLevels,
 
 template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void MakeCoarseLevelMaps2(const int maxRegPerGID,
-                          Teuchos::ArrayView<GlobalOrdinal> sendGIDs,
-                          Teuchos::ArrayView<int>           sendPIDs,
-                          Teuchos::ArrayView<LocalOrdinal>  compositeToRegionLIDs,
-                          Teuchos::ArrayView<GlobalOrdinal> receiveGIDs,
-                          Teuchos::ArrayView<int>           receivePIDs,
+                          Teuchos::ArrayView<LocalOrdinal>  compositeToRegionLIDsFinest,
                           Array<std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regProlong,
                           Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& regRowMaps,
                           Array<std::vector<RCP<Xpetra::Map<LocalOrdinal, GlobalOrdinal, Node> > > >& regColMaps,
@@ -961,111 +955,126 @@ void MakeCoarseLevelMaps2(const int maxRegPerGID,
 
   RCP<const Teuchos::Comm<int> > comm = regProlong[1][0]->getRowMap()->getComm();
   const int numLevels = regProlong.size();
-  int currentLevel = 1;
 
-  std::cout << "p=" << comm->getRank() << " | Starting MakeCoarseLevelMaps2" << std::endl;
-  std::cout << "p=" << comm->getRank() << " | numLevels=" << numLevels << std::endl;
+  Teuchos::Array<LO> coarseCompositeToRegionLIDs;
+  Teuchos::ArrayView<LO> compositeToRegionLIDs = compositeToRegionLIDsFinest;
+  for(int currentLevel = 1; currentLevel < numLevels; ++currentLevel) {
 
-  // Extracting some basic information about local mesh in composite/region format
-  const size_t numFineRegionNodes    = regProlong[1][0]->getNodeNumRows();
-  const size_t numFineCompositeNodes = compositeToRegionLIDs.size();
-  const size_t numFineDuplicateNodes = numFineRegionNodes - numFineCompositeNodes;
+    // std::cout << "p=" << comm->getRank() << " | Starting MakeCoarseLevelMaps2" << std::endl;
+    // std::cout << "p=" << comm->getRank() << " | numLevels=" << numLevels << std::endl;
 
-  const size_t numCoarseRegionNodes  = regProlong[1][0]->getColMap()->getNodeNumElements();
+    // Extracting some basic information about local mesh in composite/region format
+    const size_t numFineRegionNodes    = regProlong[currentLevel][0]->getNodeNumRows();
+    const size_t numFineCompositeNodes = compositeToRegionLIDs.size();
+    const size_t numFineDuplicateNodes = numFineRegionNodes - numFineCompositeNodes;
 
-  // Find the regionLIDs associated with local duplicated nodes
-  // This will allow us to later loop only on duplicated nodes
-  size_t countComposites = 0, countDuplicates = 0;
-  Array<LO> fineDuplicateLIDs(numFineDuplicateNodes);
-  for(size_t regionIdx = 0; regionIdx < numFineRegionNodes; ++regionIdx) {
-    if(compositeToRegionLIDs[countComposites] == regionIdx) {
-      ++countComposites;
-    } else {
-      fineDuplicateLIDs[countDuplicates] = regionIdx;
-      ++countDuplicates;
-    }
-  }
+    const size_t numCoarseRegionNodes  = regProlong[currentLevel][0]->getColMap()->getNodeNumElements();
 
-  std::cout << "p=" << comm->getRank() << " | fineDuplicateLIDs: " << fineDuplicateLIDs() << std::endl;
-
-  // We want to communicate the coarse GIDs associated with each fine points.
-  RCP<Xpetra::Vector<MT,LO,GO,NO> > coarseCompositeGIDs
-    = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(regRowImporters[0][0]->getSourceMap(), false);
-  Teuchos::ArrayRCP<MT> coarseCompositeGIDsData = coarseCompositeGIDs->getDataNonConst(0);
-
-  for(size_t compositeNodeIdx = 0; compositeNodeIdx < numFineCompositeNodes; ++compositeNodeIdx) {
-    ArrayView<const LO> coarseRegionLID; // Should contain a single value
-    ArrayView<const SC> dummyData; // Should contain a single value
-    regProlong[1][0]->getLocalRowView(compositeToRegionLIDs[compositeNodeIdx],
-                                      coarseRegionLID,
-                                      dummyData);
-    coarseCompositeGIDsData[compositeNodeIdx] = regProlong[1][0]->getColMap()->getGlobalElement(coarseRegionLID[0]);
-  }
-
-  if(comm->getRank() == 0) {std::cout << "coarseCompositeGIDs:" << std::endl;}
-  coarseCompositeGIDs->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
-
-  std::cout << "p=" << comm->getRank() << " | quasiRegRowMaps->getNodeElementList() "
-            << quasiRegRowMaps[0][0]->getNodeElementList() << std::endl;
-
-  std::vector<RCP<Xpetra::Vector<MT, LO, GO, NO> > > coarseQuasiregionGIDs(1), coarseRegionGIDs(1);
-  compositeToRegional(coarseCompositeGIDs, coarseQuasiregionGIDs, coarseRegionGIDs, 1,
-    quasiRegRowMaps[0], regRowMaps[0], regRowImporters[0]);
-
-  if(comm->getRank() == 0) {std::cout << "coarseQuasiregionGIDs:" << std::endl;}
-  coarseQuasiregionGIDs[0]->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
-
-  Array<GO> fineRegionDuplicateCoarseLIDs(numFineDuplicateNodes);
-  Array<GO> fineRegionDuplicateCoarseGIDs(numFineDuplicateNodes);
-  for(size_t duplicateIdx = 0; duplicateIdx < numFineDuplicateNodes; ++duplicateIdx) {
-    ArrayView<const LO> coarseRegionLID; // Should contain a single value
-    ArrayView<const SC> dummyData; // Should contain a single value
-    regProlong[1][0]->getLocalRowView(fineDuplicateLIDs[duplicateIdx],
-                                      coarseRegionLID,
-                                      dummyData);
-    fineRegionDuplicateCoarseLIDs[duplicateIdx] = regProlong[1][0]->getColMap()->getGlobalElement(coarseRegionLID[0]);
-    fineRegionDuplicateCoarseGIDs[duplicateIdx] = (coarseQuasiregionGIDs[0]->getDataNonConst(0))[fineDuplicateLIDs[duplicateIdx]];
-  }
-
-  std::cout << "p=" << comm->getRank() << " | fineRegionDuplicateCoarseLIDs: " << fineRegionDuplicateCoarseLIDs() << std::endl;
-  std::cout << "p=" << comm->getRank() << " | fineRegionDuplicateCoarseGIDs: " << fineRegionDuplicateCoarseGIDs() << std::endl;
-
-  // Create the coarseQuasiregRowMap, it will be based on the coarseRegRowMap
-  LO countCoarseComposites = 0;
-  Array<GO> coarseQuasiregRowMapData = regProlong[1][0]->getColMap()->getNodeElementList();
-  Array<GO> coarseCompRowMapData(numCoarseRegionNodes, -1);
-  std::cout << "p=" << comm->getRank() << " | coarseRegRowMapData: " << coarseQuasiregRowMapData() << std::endl;
-  for(size_t regionIdx = 0; regionIdx < numCoarseRegionNodes; ++regionIdx) {
-    const GO initialValue = coarseQuasiregRowMapData[regionIdx];
-    for(size_t duplicateIdx = 0; duplicateIdx < numFineDuplicateNodes; ++duplicateIdx) {
-      if((initialValue == fineRegionDuplicateCoarseLIDs[duplicateIdx]) && (fineRegionDuplicateCoarseGIDs[duplicateIdx] < coarseQuasiregRowMapData[regionIdx])){
-        coarseQuasiregRowMapData[regionIdx] = fineRegionDuplicateCoarseGIDs[duplicateIdx];
+    // Find the regionLIDs associated with local duplicated nodes
+    // This will allow us to later loop only on duplicated nodes
+    size_t countComposites = 0, countDuplicates = 0;
+    Array<LO> fineDuplicateLIDs(numFineDuplicateNodes);
+    for(size_t regionIdx = 0; regionIdx < numFineRegionNodes; ++regionIdx) {
+      if(compositeToRegionLIDs[countComposites] == regionIdx) {
+        ++countComposites;
+      } else {
+        fineDuplicateLIDs[countDuplicates] = regionIdx;
+        ++countDuplicates;
       }
     }
-    if(initialValue == coarseQuasiregRowMapData[regionIdx]) {
-      coarseCompRowMapData[countCoarseComposites] = coarseQuasiregRowMapData[regionIdx];
-      ++countCoarseComposites;
-    }
-  }
-  coarseCompRowMapData.resize(countCoarseComposites);
-  std::cout << "p=" << comm->getRank() << " | coarseQuasiregRowMapData: " << coarseQuasiregRowMapData() << std::endl;
-  std::cout << "p=" << comm->getRank() << " | coarseCompRowMapData: " << coarseCompRowMapData() << std::endl;
 
-  // We are now ready to fill up the outputs
-  regRowMaps[currentLevel][0] = Teuchos::rcp_const_cast<Map>(regProlong[currentLevel][0]->getColMap());
-  regColMaps[currentLevel][0] = Teuchos::rcp_const_cast<Map>(regProlong[currentLevel][0]->getColMap());
-  quasiRegRowMaps[currentLevel][0] = MapFactory::Build(regProlong[currentLevel][0]->getColMap()->lib(),
-                                                       GO_INV,
-                                                       coarseQuasiregRowMapData(),
-                                                       regProlong[currentLevel][0]->getColMap()->getIndexBase(),
-                                                       regProlong[currentLevel][0]->getColMap()->getComm());
-  quasiRegColMaps[currentLevel][0] = quasiRegRowMaps[currentLevel][0];
-  compRowMaps[currentLevel] = MapFactory::Build(regProlong[currentLevel][0]->getColMap()->lib(),
-                                                GO_INV,
-                                                coarseCompRowMapData(),
-                                                regProlong[currentLevel][0]->getColMap()->getIndexBase(),
-                                                regProlong[currentLevel][0]->getColMap()->getComm());
-  regRowImporters[currentLevel][0] = ImportFactory::Build(compRowMaps[currentLevel], quasiRegRowMaps[currentLevel][0]);
+    // std::cout << "p=" << comm->getRank() << " | fineDuplicateLIDs: " << fineDuplicateLIDs() << std::endl;
+
+    // We want to communicate the coarse GIDs associated with each fine points.
+    RCP<Xpetra::Vector<MT,LO,GO,NO> > coarseCompositeGIDs
+      = Xpetra::VectorFactory<MT,LO,GO,NO>::Build(regRowImporters[currentLevel - 1][0]->getSourceMap(), false);
+    Teuchos::ArrayRCP<MT> coarseCompositeGIDsData = coarseCompositeGIDs->getDataNonConst(0);
+
+    for(size_t compositeNodeIdx = 0; compositeNodeIdx < numFineCompositeNodes; ++compositeNodeIdx) {
+      ArrayView<const LO> coarseRegionLID; // Should contain a single value
+      ArrayView<const SC> dummyData; // Should contain a single value
+      regProlong[currentLevel][0]->getLocalRowView(compositeToRegionLIDs[compositeNodeIdx],
+                                                   coarseRegionLID,
+                                                   dummyData);
+      coarseCompositeGIDsData[compositeNodeIdx] = regProlong[currentLevel][0]->getColMap()->getGlobalElement(coarseRegionLID[0]);
+    }
+
+    // if(comm->getRank() == 0) {std::cout << "coarseCompositeGIDs:" << std::endl;}
+    // coarseCompositeGIDs->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+    // std::cout << "p=" << comm->getRank() << " | quasiRegRowMaps->getNodeElementList() "
+    //           << quasiRegRowMaps[currentLevel - 1][0]->getNodeElementList() << std::endl;
+
+    std::vector<RCP<Xpetra::Vector<MT, LO, GO, NO> > > coarseQuasiregionGIDs(1), coarseRegionGIDs(1);
+    compositeToRegional(coarseCompositeGIDs,
+                        coarseQuasiregionGIDs,
+                        coarseRegionGIDs,
+                        1,
+                        quasiRegRowMaps[currentLevel - 1],
+                        regRowMaps[currentLevel - 1],
+                        regRowImporters[currentLevel - 1]);
+
+    // if(comm->getRank() == 0) {std::cout << "coarseQuasiregionGIDs:" << std::endl;}
+    // coarseQuasiregionGIDs[0]->describe(*Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout)), Teuchos::VERB_EXTREME);
+
+    Array<GO> fineRegionDuplicateCoarseLIDs(numFineDuplicateNodes);
+    Array<GO> fineRegionDuplicateCoarseGIDs(numFineDuplicateNodes);
+    for(size_t duplicateIdx = 0; duplicateIdx < numFineDuplicateNodes; ++duplicateIdx) {
+      ArrayView<const LO> coarseRegionLID; // Should contain a single value
+      ArrayView<const SC> dummyData; // Should contain a single value
+      regProlong[currentLevel][0]->getLocalRowView(fineDuplicateLIDs[duplicateIdx],
+                                                   coarseRegionLID,
+                                                   dummyData);
+      fineRegionDuplicateCoarseLIDs[duplicateIdx] = regProlong[currentLevel][0]->getColMap()->getGlobalElement(coarseRegionLID[0]);
+      fineRegionDuplicateCoarseGIDs[duplicateIdx] = (coarseQuasiregionGIDs[0]->getDataNonConst(0))[fineDuplicateLIDs[duplicateIdx]];
+    }
+
+    // std::cout << "p=" << comm->getRank() << " | fineRegionDuplicateCoarseLIDs: " << fineRegionDuplicateCoarseLIDs() << std::endl;
+    // std::cout << "p=" << comm->getRank() << " | fineRegionDuplicateCoarseGIDs: " << fineRegionDuplicateCoarseGIDs() << std::endl;
+
+    // Create the coarseQuasiregRowMap, it will be based on the coarseRegRowMap
+    LO countCoarseComposites = 0;
+    coarseCompositeToRegionLIDs.resize(numCoarseRegionNodes);
+    Array<GO> coarseQuasiregRowMapData = regProlong[currentLevel][0]->getColMap()->getNodeElementList();
+    Array<GO> coarseCompRowMapData(numCoarseRegionNodes, -1);
+    // std::cout << "p=" << comm->getRank() << " | coarseRegRowMapData: " << coarseQuasiregRowMapData() << std::endl;
+    for(size_t regionIdx = 0; regionIdx < numCoarseRegionNodes; ++regionIdx) {
+      const GO initialValue = coarseQuasiregRowMapData[regionIdx];
+      for(size_t duplicateIdx = 0; duplicateIdx < numFineDuplicateNodes; ++duplicateIdx) {
+        if((initialValue == fineRegionDuplicateCoarseLIDs[duplicateIdx]) && (fineRegionDuplicateCoarseGIDs[duplicateIdx] < coarseQuasiregRowMapData[regionIdx])){
+          coarseQuasiregRowMapData[regionIdx] = fineRegionDuplicateCoarseGIDs[duplicateIdx];
+        }
+      }
+      if(initialValue == coarseQuasiregRowMapData[regionIdx]) {
+        coarseCompRowMapData[countCoarseComposites] = coarseQuasiregRowMapData[regionIdx];
+        coarseCompositeToRegionLIDs[countCoarseComposites] = regionIdx;
+        ++countCoarseComposites;
+      }
+    }
+    coarseCompRowMapData.resize(countCoarseComposites);
+    coarseCompositeToRegionLIDs.resize(countCoarseComposites);
+    // std::cout << "p=" << comm->getRank() << " | coarseQuasiregRowMapData: " << coarseQuasiregRowMapData() << std::endl;
+    // std::cout << "p=" << comm->getRank() << " | coarseCompRowMapData: " << coarseCompRowMapData() << std::endl;
+
+    // We are now ready to fill up the outputs
+    regRowMaps[currentLevel][0] = Teuchos::rcp_const_cast<Map>(regProlong[currentLevel][0]->getColMap());
+    regColMaps[currentLevel][0] = Teuchos::rcp_const_cast<Map>(regProlong[currentLevel][0]->getColMap());
+    quasiRegRowMaps[currentLevel][0] = MapFactory::Build(regProlong[currentLevel][0]->getColMap()->lib(),
+                                                         GO_INV,
+                                                         coarseQuasiregRowMapData(),
+                                                         regProlong[currentLevel][0]->getColMap()->getIndexBase(),
+                                                         regProlong[currentLevel][0]->getColMap()->getComm());
+    quasiRegColMaps[currentLevel][0] = quasiRegRowMaps[currentLevel][0];
+    compRowMaps[currentLevel] = MapFactory::Build(regProlong[currentLevel][0]->getColMap()->lib(),
+                                                  GO_INV,
+                                                  coarseCompRowMapData(),
+                                                  regProlong[currentLevel][0]->getColMap()->getIndexBase(),
+                                                  regProlong[currentLevel][0]->getColMap()->getComm());
+    regRowImporters[currentLevel][0] = ImportFactory::Build(compRowMaps[currentLevel], quasiRegRowMaps[currentLevel][0]);
+
+    // Finally reset compositeToRegionLIDs
+    compositeToRegionLIDs = coarseCompositeToRegionLIDs();
+  }
 
 } // MakeCoarseLevelMaps2
 
@@ -1170,11 +1179,7 @@ void createRegionHierarchy(const int maxRegPerProc,
                            Array<std::vector<RCP<Xpetra::Vector<Scalar, LocalOrdinal, GlobalOrdinal, Node> > > >& regInterfaceScalings,
                            RCP<Xpetra::Matrix<Scalar, LocalOrdinal, GlobalOrdinal, Node> >& coarseCompOp,
                            const int maxRegPerGID = 0,
-                           ArrayView<GlobalOrdinal> sendGIDs = {},
-                           ArrayView<int> sendPIDs = {},
-                           ArrayView<LocalOrdinal> compositeToRegionLIDs = {},
-                           ArrayView<GlobalOrdinal> receiveGIDs = {},
-                           ArrayView<int> receivePIDs = {})
+                           ArrayView<LocalOrdinal> compositeToRegionLIDs = {})
 {
 #include "Xpetra_UseShortNames.hpp"
 
@@ -1281,11 +1286,7 @@ void createRegionHierarchy(const int maxRegPerProc,
   }
 
   MakeCoarseLevelMaps2(maxRegPerGID,
-                       sendGIDs,
-                       sendPIDs,
                        compositeToRegionLIDs,
-                       receiveGIDs,
-                       receivePIDs,
                        regProlong,
                        regRowMaps,
                        regColMaps,
