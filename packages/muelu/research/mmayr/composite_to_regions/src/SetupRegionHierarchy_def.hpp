@@ -118,7 +118,10 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdin
   std::vector<RCP<Matrix> > quasiRegMat(maxRegPerProc);
   {
     for (int j = 0; j < maxRegPerProc; j++) {
-      quasiRegMat[j] = rcp(new CrsMatrixWrap(rowMapPerGrp[j], colMapPerGrp[j], 9, Xpetra::DynamicProfile));
+      quasiRegMat[j] = rcp(new CrsMatrixWrap(rowMapPerGrp[j],
+                                             colMapPerGrp[j],
+                                             regMat[j]->getCrsGraph()->getNodeMaxNumRowEntries(),
+                                             Xpetra::StaticProfile));
 
       // Extract current quasi-region CrsMatrix
       RCP<CrsMatrix> quasiRegionCrsMat = Teuchos::rcp_dynamic_cast<CrsMatrixWrap>(quasiRegMat[j])->getCrsMatrix();
@@ -155,12 +158,16 @@ void regionalToComposite(const std::vector<RCP<Xpetra::Matrix<Scalar, LocalOrdin
     }
   }
 
+  std::cout << "regionalToComposite: quasiRegionCrsMat is now fillComplete" << std::endl;
+
   // Export from quasiRegional format to composite layout
   std::vector<RCP<Matrix> > partialCompMat(maxRegPerProc);
   for (int j = 0; j < maxRegPerProc; j++) {
-    partialCompMat[j] = MatrixFactory::Build(compMat->getRowMap(), 3, Xpetra::DynamicProfile);
+    partialCompMat[j] = MatrixFactory::Build(compMat->getRowMap(),
+                                             8*regMat[0]->getCrsGraph()->getNodeMaxNumRowEntries(),
+                                             Xpetra::StaticProfile);
     partialCompMat[j]->doExport(*(quasiRegMat[j]), *(rowImportPerGrp[j]), Xpetra::INSERT);
-    partialCompMat[j]->fillComplete(compMat->getDomainMap(), compMat->getRangeMap());
+    partialCompMat[j]->fillComplete();
   }
 
   // Add all partialCompMat together
@@ -1075,7 +1082,10 @@ void MakeCoarseCompositeOperator(const int maxRegPerProc, const int numLevels,
 {
 #include "Xpetra_UseShortNames.hpp"
   const int maxLevel = numLevels - 1;
-  coarseCompOp = MatrixFactory::Build(compRowMaps[maxLevel], 3, Xpetra::DynamicProfile);
+  coarseCompOp = MatrixFactory::Build(compRowMaps[maxLevel],
+                                       // This estimate is very conservative and probably costs us lots of memory...
+                                      8*regMatrices[maxLevel][0]->getCrsGraph()->getNodeMaxNumRowEntries(),
+                                      Xpetra::DynamicProfile);
   //      coarseCompOp->setAllToScalar(SC_ZERO);
   //      coarseCompOp->describe(*fos, Teuchos::VERB_EXTREME);
 
