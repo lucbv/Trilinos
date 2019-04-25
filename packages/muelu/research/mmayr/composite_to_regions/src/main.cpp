@@ -746,8 +746,6 @@ int main_(int argc, char *argv[]) {
     // create dummy coordinates vector
     coordinates[j] = Xpetra::MultiVectorFactory<real_type, LocalOrdinal, GlobalOrdinal, Node>::Build(revisedRowMapPerGrp[j], 3);
     coordinates[j]->putScalar(scalarOne);
-      userParamList.set<RCP<Epetra_MultiVector> >("Coordinates", coordinates);
-      userParamList.set<RCP<Epetra_MultiVector> >("Nullspace", nullspace);
   }
 
   // Create multigrid hierarchy

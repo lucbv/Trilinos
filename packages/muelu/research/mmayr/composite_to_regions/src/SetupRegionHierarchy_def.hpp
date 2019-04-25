@@ -1201,9 +1201,15 @@ void createRegionHierarchy(const int maxRegPerProc,
     userParamList.set<int>("int numDimensions", numDimensions);
     userParamList.set<Array<int> >("Array<LO> lNodesPerDim", lNodesPerDim[j]);
     userParamList.set<std::string>("string aggregationRegionType", aggregationRegionType[j]);
+    if(Teuchos::nonnull(coordinates[j])) {
+      userParamList.set("Coordinates", coordinates[j]);
+    }
+    if(Teuchos::nonnull(nullspace[j])) {
+      userParamList.set("Nullspace", nullspace[j]);
+    }
 
     // Setup hierarchy
-    regGrpHierarchy[j] = MueLu::CreateXpetraPreconditioner(regionGrpMats[j], *mueluParams, coordinates[j], nullspace[j]);
+    regGrpHierarchy[j] = MueLu::CreateXpetraPreconditioner(regionGrpMats[j], *mueluParams);
   }
 
   std::cout << mapComp->getComm()->getRank() << " | Resize containers..." << std::endl;
@@ -1604,9 +1610,9 @@ void vCycle(const int l, ///< ID of current level
 
       // With all the pieces in place we can call Amesos to solve the coarse grid problem
       //! amesos2-specific key phrase that denote smoother type
-      std::string amesos2SolverName = "Klu";
+      std::string amesos2SolverName = "KLU2";
       RCP<Amesos2::Solver<Tpetra_CrsMatrix, Tpetra_MultiVector> > coarseSolver;
-      TEUCHOS_ASSERT(Amesos2::query(solverName));
+      TEUCHOS_ASSERT(Amesos2::query(amesos2SolverName));
       coarseSolver = Amesos2::create<Tpetra_CrsMatrix,Tpetra_MultiVector>(amesos2SolverName, tMat);
 
       Teuchos::ParameterList amesos2_params("Amesos2");

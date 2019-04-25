@@ -1102,15 +1102,13 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
                                                           Teuchos::OrdinalTraits<GO>::invalid(),
                                                           quasiRegionGIDs(),
                                                           dofMap->getIndexBase(),
-                                                          dofMap->getComm(),
-                                                          dofMap->getNode());
+                                                          dofMap->getComm());
   colMapPerGrp[0] = rowMapPerGrp[0];
   revisedRowMapPerGrp[0] = Xpetra::MapFactory<LO,GO,Node>::Build(dofMap->lib(),
                                                                  Teuchos::OrdinalTraits<GO>::invalid(),
                                                                  numLocalRegionNodes,
                                                                  dofMap->getIndexBase(),
-                                                                 dofMap->getComm(),
-                                                                 dofMap->getNode());
+                                                                 dofMap->getComm());
   revisedColMapPerGrp[0] = revisedRowMapPerGrp[0];
 
   // Setup importers
