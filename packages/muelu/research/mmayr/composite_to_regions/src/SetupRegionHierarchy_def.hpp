@@ -1604,9 +1604,14 @@ void vCycle(const int l, ///< ID of current level
 
       // With all the pieces in place we can call Amesos to solve the coarse grid problem
       //! amesos2-specific key phrase that denote smoother type
-      std::string type_ = "Klu";
-      RCP<Amesos2::Solver<Tpetra_CrsMatrix, Tpetra_MultiVector> > coarseSolver
-        = Amesos2::create<Tpetra_CrsMatrix,Tpetra_MultiVector>(type_, tMat);
+      std::string amesos2SolverName = "Klu";
+      RCP<Amesos2::Solver<Tpetra_CrsMatrix, Tpetra_MultiVector> > coarseSolver;
+      TEUCHOS_ASSERT(Amesos2::query(solverName));
+      coarseSolver = Amesos2::create<Tpetra_CrsMatrix,Tpetra_MultiVector>(amesos2SolverName, tMat);
+
+      Teuchos::ParameterList amesos2_params("Amesos2");
+      amesos2_params.sublist(amesos2SolverName).set("IsContiguous", false, "Are GIDs Contiguous");
+      coarseSolver->setParameters( Teuchos::rcpFromRef(amesos2_params) );
 
 
       coarseSolver->setX(tX);
