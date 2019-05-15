@@ -151,6 +151,7 @@ namespace MueLu {
     std::cout << "Entering BuildPCrs" << std::endl;
     std::cout << "----------------------------------------------------------" << std::endl;
     // Get parameter list
+    FactoryMonitor m(*this, "Build", level);
     const ParameterList& pL = GetParameterList();
     RCP<Xpetra::MultiVector<double,LO,GO,NO> > coordinates =
       Get< RCP<Xpetra::MultiVector<double,LO,GO,NO> > >(level, "Coordinates");
@@ -388,8 +389,8 @@ namespace MueLu {
 
     // set StridingInformation of P
     if (A->IsView("stridedMaps") == true) {
-    std::cout << "A->IsView(stridedMaps) == true)" << std::endl;
-      PCrs->CreateView("stridedMaps", A->getRowMap("stridedMaps"), stridedDomainMapP);
+      std::cout << "A->IsView(stridedMaps) == true)" << std::endl;
+      P->CreateView("stridedMaps", A->getRowMap("stridedMaps"), stridedDomainMapP);
     } else {
       P->CreateView("stridedMaps", PCrs->getRangeMap(), stridedDomainMapP);
     }
