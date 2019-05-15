@@ -992,8 +992,12 @@ namespace MueLuTests {
       level.Set("Coordinates", BBCoordinates);  // set fine level coordinates
       level.Set("gFineNodesPerDir", gFineNodesPerDir);
       level.Set("lFineNodesPerDir", lFineNodesPerDir);
+
+      // level.Request("P", myBBPFact.get());
+      // printf("Hello 9.5\n");
       myBBPFact->BuildPCrs(level, prolongatorGraph, BBConnectivity);
-      RCP<Xpetra::Matrix<SC,LO,GO,Node> > P = level.Get<RCP<Matrix> >("P", MueLu::NoFactory::get());
+      RCP<Xpetra::Matrix<SC,LO,GO,Node> > P;
+      level.Get<RCP<Matrix> >("P", P, myBBPFact.get());
       RCP<CrsMatrix> PCrs = rcp_dynamic_cast<CrsMatrixWrap>(P)->getCrsMatrix();
       Xpetra::IO<SC,LO,GO,NO>::Write("CleanedBlackBoxProlongator.m", *P);
       //Array<LO> elementNodesPerDir(3);

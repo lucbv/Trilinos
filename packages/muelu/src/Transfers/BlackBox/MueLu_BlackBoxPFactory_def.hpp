@@ -387,6 +387,8 @@ namespace MueLu {
     PCrs->setAllValues(iaP, jaP, valP);
     PCrs->expertStaticFillComplete(domainMapP,rowMapP);
 
+    Xpetra::IO<SC,LO,GO,NO>::Write("CleanedBlackBoxProlongator.m", *P);
+
     // set StridingInformation of P
     if (A->IsView("stridedMaps") == true) {
       std::cout << "A->IsView(stridedMaps) == true)" << std::endl;
