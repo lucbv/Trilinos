@@ -249,9 +249,9 @@ namespace MueLu {
     RCP<NodesIDs> ghostedCoarseNodes = rcp(new NodesIDs{});
     GenerateCoarseInfo(coarseRate, gFineNodesPerDir, prolongatorGraph,
                        lFineNodesPerDir, BlkSize, numDimensions, endRate,
-                       myOffset, gCoarseNodesPerDir, 
+                       myOffset, gCoarseNodesPerDir,
                        lCoarseNodesPerDir, boundaryFlags, gIndices);
-    
+
     // Unamalgamating map from prolongator, this should go away after small refactor of structured
     // aggregation factory to have it construct the true prolongatorGraph.
     ArrayView<const GO> initialRowMapGIDs = prolongatorGraph->getRowMap()->getNodeElementList();
@@ -375,13 +375,17 @@ namespace MueLu {
                           numNodesInElement, Pi, Pf, Pe, dofType, lDofInd);
       // Move data into arrayviews to be fanned out to global P
       ExtractFromLocal(Pi, Pf, Pe, numNodesInElement, elementNodesPerDir, connectivity,
-                       lFineNodesPerDir, numDimensions, coarseRate, glElementCoarseNodeCG, 
-                       glElementRefTuple, myOffset, dofType, lDofInd, elemInds, BlkSize, 
-                       nnzPerCoarseNode, ghostedCoarseNodes, blockStrategy, lCoarseNodesPerDir, 
+                       lFineNodesPerDir, numDimensions, coarseRate, glElementCoarseNodeCG,
+                       glElementRefTuple, myOffset, dofType, lDofInd, elemInds, BlkSize,
+                       nnzPerCoarseNode, ghostedCoarseNodes, blockStrategy, lCoarseNodesPerDir,
                        ia, ja, val);
     }
     // Sort all row's column indicies and entries by LID
     Xpetra::CrsMatrixUtils<SC,LO,GO,NO>::sortCrsEntries(ia, ja, val, rowMapP->lib());
+
+    std::cout << "ia:  " << ia << std::endl;
+    std::cout << "ja:  " << ja << std::endl;
+    std::cout << "val: " << val << std::endl;
 
     // Set the values of the prolongation operators into the CrsMatrix P and call FillComplete
     PCrs->setAllValues(iaP, jaP, valP);
@@ -1024,11 +1028,11 @@ namespace MueLu {
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   GenerateCoarseInfo(const Array<LO> coarseRate, const Array<GO> gFineNodesPerDir,
-                     const RCP<CrsGraph> prolongatorGraph, const Array<LO> lFineNodesPerDir, 
+                     const RCP<CrsGraph> prolongatorGraph, const Array<LO> lFineNodesPerDir,
                      const LO BlkSize, const LO numDimensions, Array<LO> &endRate,
-                     Array<LO>& myOffset, Array<GO>& gCoarseNodesPerDir, 
+                     Array<LO>& myOffset, Array<GO>& gCoarseNodesPerDir,
                      Array<LO>& lCoarseNodesPerDir, Array<int>& boundaryFlags, Array<GO>& gIndices) const {
-    // Not sure the best way to get this? 
+    // Not sure the best way to get this?
     GO minGlobalIndex = prolongatorGraph->getRowMap()->getMinGlobalIndex();
     {
       GO tmp;
@@ -1036,7 +1040,7 @@ namespace MueLu {
       tmp         = minGlobalIndex % (gFineNodesPerDir[1]*gFineNodesPerDir[0]);
       gIndices[1] = tmp / gFineNodesPerDir[0];
       gIndices[0] = tmp % gFineNodesPerDir[0];
-      
+
       myOffset[2] = gIndices[2] % coarseRate[2];
       myOffset[1] = gIndices[1] % coarseRate[1];
       myOffset[0] = gIndices[0] % coarseRate[0];
@@ -1832,7 +1836,7 @@ namespace MueLu {
         }
         ++countInterior;
       }
-      
+
       collapseFlags[0] = 0; collapseFlags[1] = 0; collapseFlags[2] = 0;
       if((elementFlags[0] == 1 || elementFlags[0] == 3) && ie == 0) {
         collapseFlags[0] += 1;
@@ -2083,7 +2087,7 @@ namespace MueLu {
 
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   void BlackBoxPFactory<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
-  FormatStencil(const LO BlkSize, const LO ie, const LO je,  const LO ke, 
+  FormatStencil(const LO BlkSize, const LO ie, const LO je,  const LO ke,
                 const ArrayView<const SC> rowValues,const Array<LO> elementNodesPerDir,
                 const int collapseFlags[3], const std::string stencilType, Array<SC>& stencil)
     const {
@@ -2319,7 +2323,7 @@ namespace MueLu {
             if(nodeInd[1] == elementNodesPerDir[1] - 1) {cornerInd += 2;}
             if(nodeInd[0] == elementNodesPerDir[0] - 1) {cornerInd += 1;}
             ia[lNodeLIDs[nodeElementInd]*BlkSize + dof + 1] = rowPtr + dof + 1;
-            
+
             //ja[rowPtr + dof] = ghostedCoarseNodes->colInds[glElementCoarseNodeCG[cornerInd]]*BlkSize + dof;
             val[rowPtr + dof] = 1.0;
             break;
