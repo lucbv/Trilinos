@@ -126,116 +126,66 @@ namespace MueLu {
     int maxNodesPerAggregate = params.get<int>("aggregation: max agg size");
     if(maxNodesPerAggregate == std::numeric_limits<int>::max()) {maxIters = 1;}
     for (int iter = 0; iter < maxIters; ++iter) {
-      // total work = numberOfTeams * teamSize
-      typedef typename Kokkos::TeamPolicy<execution_space>::member_type  member_type;
-      LO tmpNumNonAggregatedNodes = 0;
-      Kokkos::TeamPolicy<execution_space> outerPolicy(numRows, Kokkos::AUTO);
-      Kokkos::parallel_reduce("Aggregation Phase 2b: aggregates expansion",
-                              outerPolicy.set_scratch_size(0, Kokkos::PerTeam( scratch_size ) ),
-                              KOKKOS_LAMBDA (const member_type &teamMember,
-                                             LO& lNumNonAggregatedNodes) {
+      for(LO color = 1; color <= numColors; color++) {
+        Kokkos::deep_copy(aggWeight, 0);
 
-                                // Retrieve the id of the vertex we are currently working on and
-                                // allocate view locally so that threads do not trash the weigth
-                                // when working on the same aggregate.
-                                const int vertexIdx = teamMember.league_rank();
-                                int numAggregatedNeighbors = 0;
-                                ScratchViewType aggregatedNeighbors(teamMember.team_scratch( 0 ),
-                                                                    maxNumNeighbors);
-                                ScratchViewType vertex2AggLID(teamMember.team_scratch( 0 ),
-                                                                  maxNumNeighbors);
-                                ScratchViewType aggWeight(teamMember.team_scratch( 0 ),
-                                                              maxNumNeighbors);
+        //the reduce counts how many nodes are aggregated by this phase,
+        //which will then be subtracted from numNonAggregatedNodes
+        LO numAggregated = 0;
+        Kokkos::parallel_reduce("Aggregation Phase 2b: aggregates expansion",
+                                Kokkos::RangePolicy<execution_space>(0, numRows),
+                                KOKKOS_LAMBDA (const LO i, LO& tmpNumAggregated) {
+                                  if (aggStat(i) != READY || colors(i) != color)
+                                    return;
 
-                                if (aggStat(vertexIdx) == READY) {
-
-                                  // neighOfINode should become scratch and shared among
-                                  // threads in the team...
-                                  auto neighOfINode = graph.getNeighborVertices(vertexIdx);
-
-                                  // create a mapping from neighbor "lid" to aggregate "lid"
-                                  Kokkos::single( Kokkos::PerTeam( teamMember ), [&] () {
-                                      int aggLIDCount = 0;
-                                      for (int j = 0; j < neighOfINode.length; ++j) {
-                                        LO neigh = neighOfINode(j);
-                                        if( graph.isLocalNeighborVertex(neigh) &&
-                                            (aggStat(neigh) == AGGREGATED) ) {
-                                          aggregatedNeighbors(numAggregatedNeighbors) = j;
-
-                                          bool useNewLID = true;
-                                          for(int k = 0; k < numAggregatedNeighbors; ++k) {
-                                            LO lowerNeigh = neighOfINode(aggregatedNeighbors(k));
-                                            if(vertex2AggId(neigh, 0) == vertex2AggId(lowerNeigh, 0)) {
-                                              vertex2AggLID(numAggregatedNeighbors) = vertex2AggLID(k);
-                                              useNewLID = false;
-                                            }
-                                          }
-                                          if(useNewLID) {
-                                            vertex2AggLID(numAggregatedNeighbors) = aggLIDCount;
-                                            ++aggLIDCount;
-                                          }
-
-                                          ++numAggregatedNeighbors;
-                                        }
-                                      }
-                                    });
-
-                                  // LBV on Sept 13, 2019: double check that localNeigh
-                                  // is not needed here...
-                                  for (int j = 0; j < numAggregatedNeighbors; j++) {
-                                    // LO localNeigh = aggregatedNeighbors(j);
+                                  auto neighOfINode = graph.getNeighborVertices(i);
+                                  for (int j = 0; j < neighOfINode.length; j++) {
                                     LO neigh = neighOfINode(j);
 
-                                    aggWeight(vertex2AggLID(j)) = aggWeight(vertex2AggLID(j))
-                                      + connectWeight(neigh);
+                                    // We don't check (neigh != i), as it is covered by checking
+                                    // (aggStat[neigh] == AGGREGATED)
+                                    if (graph.isLocalNeighborVertex(neigh) &&
+                                        aggStat(neigh) == AGGREGATED)
+                                      Kokkos::atomic_add(&aggWeight(vertex2AggId(neigh, 0), 0),
+                                                         connectWeight(neigh));
                                   }
 
                                   int bestScore   = -100000;
                                   int bestAggId   = -1;
                                   int bestConnect = -1;
 
-                                  for (int j = 0; j < numAggregatedNeighbors; j++) {
-                                    LO  localNeigh = aggregatedNeighbors(j);
-                                    LO  neigh = neighOfINode(localNeigh);
-                                    int aggId = vertex2AggId(neigh, 0);
-                                    int score = aggWeight(vertex2AggLID(j)) - aggPenalties(aggId);
+                                  for (int j = 0; j < neighOfINode.length; j++) {
+                                    LO neigh = neighOfINode(j);
 
-                                    if (score > bestScore) {
-                                      bestAggId   = aggId;
-                                      bestScore   = score;
-                                      bestConnect = connectWeight(neigh);
+                                    if (graph.isLocalNeighborVertex(neigh) &&
+                                        aggStat(neigh) == AGGREGATED) {
+                                      auto aggId = vertex2AggId(neigh, 0);
+                                      int score = aggWeight(aggId) - aggPenalties(aggId);
 
-                                    } else if (aggId == bestAggId
-                                               && connectWeight(neigh) > bestConnect) {
-                                      bestConnect = connectWeight(neigh);
-                                    }
+                                      if (score > bestScore) {
+                                        bestAggId   = aggId;
+                                        bestScore   = score;
+                                        bestConnect = connectWeight(neigh);
 
-                                    // Reset the weights for the next loop
-                                    // LBV: this looks a little suspicious, it would probably
-                                    // need to be taken out of this inner for loop...
-                                    aggWeight(vertex2AggLID(j)) = 0;
-                                  }
-
-                                  // Do the actual aggregate update with a single thread!
-                                  Kokkos::single( Kokkos::PerTeam( teamMember ), [&] () {
-                                      if (bestScore >= 0) {
-                                        aggStat     (vertexIdx)    = AGGREGATED;
-                                        vertex2AggId(vertexIdx, 0) = bestAggId;
-                                        procWinner  (vertexIdx, 0) = myRank;
-
-                                        lNumNonAggregatedNodes--;
-
-                                        // This does not protect bestAggId's aggPenalties from being
-                                        // fetched by another thread before this update happens, it just
-                                        // guarantees that the update is performed correctly...
-                                        Kokkos::atomic_add(&aggPenalties(bestAggId), 1);
-                                        connectWeight(vertexIdx) = bestConnect - penaltyConnectWeight;
+                                      } else if (aggId == bestAggId &&
+                                                 connectWeight(neigh) > bestConnect) {
+                                        bestConnect = connectWeight(neigh);
                                       }
-                                    });
-                                }
-                              }, tmpNumNonAggregatedNodes);
-      numNonAggregatedNodes += tmpNumNonAggregatedNodes;
-    } // loop over k
+                                    }
+                                  }
+                                  if (bestScore >= 0) {
+                                    aggStat(i, 0)      = AGGREGATED;
+                                    vertex2AggId(i, 0) = bestAggId;
+                                    procWinner(i, 0)   = myRank;
+
+                                    Kokkos::atomic_add(&aggPenalties(bestAggId), 1);
+                                    connectWeight(i) = bestConnect - penaltyConnectWeight;
+                                    tmpNumAggregated++;
+                                  }
+                                }, numAggregated); //parallel_for
+        numNonAggregatedNodes -= numAggregated;
+      }
+    } // loop over maxIters
 
   } // BuildAggregatesRandom
 

@@ -39,7 +39,7 @@ Build (MueLu::UncoupledAggregationFactory_kokkos)
 BuildAggregates (Phase - (Dirichlet))
 BuildAggregates (Phase 1 (main))
 BuildAggregates (Phase 2a (secondary))
-BuildAggregates (Phase 2b (expansion))
+BuildAggregatesRandom (Phase 2b (expansion))
 BuildAggregates (Phase 3 (cleanup))
 aggregation: max agg size = -1   [default]
 aggregation: min agg size = 2   [default]
@@ -103,7 +103,7 @@ Cycle type          = V
 
 level  rows   nnz    nnz/row  c ratio  procs
   0  10000  49600  4.96                  1  
-  1  1700   14928  8.78     5.88         1  
+  1  1700   14976  8.81     5.88         1  
 
 Smoother (level 0) both : "Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Symmetric Gauss-Seidel, sweeps: 1, damping factor: 1, Global matrix dimensions: [10000, 10000], Global nnz: 49600}
 
