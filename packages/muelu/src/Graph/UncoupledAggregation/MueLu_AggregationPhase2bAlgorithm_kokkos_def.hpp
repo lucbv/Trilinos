@@ -98,20 +98,22 @@ namespace MueLu {
     const LO  numRows = graph.GetNodeNumVertices();
     const int myRank  = graph.GetComm()->getRank();
 
-    auto vertex2AggId  = aggregates.GetVertex2AggId()->template getLocalView<memory_space>();
-    auto procWinner    = aggregates.GetProcWinner()  ->template getLocalView<memory_space>();
+    auto vertex2AggId           = aggregates.GetVertex2AggId()->template getLocalView<memory_space>();
+    auto procWinner             = aggregates.GetProcWinner()  ->template getLocalView<memory_space>();
+    auto colors                 = aggregates.GetGraphColors();
+    const LO numColors          = aggregates.GetGraphNumColors();
+    const LO numLocalAggregates = aggregates.GetNumAggregates();
 
-    // LO numLocalAggregates = aggregates.GetNumAggregates();
-
-    const int defaultConnectWeight = 100;
-    const int penaltyConnectWeight = 10;
+    const LO defaultConnectWeight = 100;
+    const LO penaltyConnectWeight = 10;
 
     // This actually corresponds to the maximum number of entries per row in the matrix.
     const size_t maxNumNeighbors = graph.getNodeMaxNumRowEntries();
     int scratch_size = ScratchViewType::shmem_size( 3*maxNumNeighbors );
 
-    Kokkos::View<int*, memory_space> connectWeight("connectWeight", numRows);
-    Kokkos::View<int*, memory_space> aggPenalties("aggPenalties",  numRows);
+    Kokkos::View<LO*, memory_space> aggWeight    ("aggWeight",     numLocalAggregates);
+    Kokkos::View<LO*, memory_space> connectWeight("connectWeight", numRows);
+    Kokkos::View<LO*, memory_space> aggPenalties ("aggPenalties",  numRows);
 
     Kokkos::deep_copy(connectWeight, defaultConnectWeight);
 
@@ -126,7 +128,7 @@ namespace MueLu {
     int maxNodesPerAggregate = params.get<int>("aggregation: max agg size");
     if(maxNodesPerAggregate == std::numeric_limits<int>::max()) {maxIters = 1;}
     for (int iter = 0; iter < maxIters; ++iter) {
-      for(LO color = 1; color <= numColors; color++) {
+      for(LO color = 1; color <= numColors; ++color) {
         Kokkos::deep_copy(aggWeight, 0);
 
         //the reduce counts how many nodes are aggregated by this phase,
