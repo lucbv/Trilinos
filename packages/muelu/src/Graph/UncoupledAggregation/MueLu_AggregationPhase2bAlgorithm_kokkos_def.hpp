@@ -113,7 +113,7 @@ namespace MueLu {
 
     Kokkos::View<LO*, memory_space> aggWeight    ("aggWeight",     numLocalAggregates);
     Kokkos::View<LO*, memory_space> connectWeight("connectWeight", numRows);
-    Kokkos::View<LO*, memory_space> aggPenalties ("aggPenalties",  numRows);
+    Kokkos::View<LO*, memory_space> aggPenalties ("aggPenalties",  numLocalAggregates);
 
     Kokkos::deep_copy(connectWeight, defaultConnectWeight);
 
@@ -215,9 +215,10 @@ namespace MueLu {
     const int defaultConnectWeight = 100;
     const int penaltyConnectWeight = 10;
 
-    Kokkos::View<int*, memory_space> aggWeight    ("aggWeight",     numLocalAggregates);
-    Kokkos::View<int*, memory_space> connectWeight("connectWeight", numRows);
-    Kokkos::View<int*, memory_space> aggPenalties ("aggPenalties",  numRows);
+    Kokkos::View<int*, memory_space> connectWeight    ("connectWeight",     numRows);
+    Kokkos::View<int*, memory_space> aggWeight        ("aggWeight",         numLocalAggregates);
+    Kokkos::View<int*, memory_space> aggPenaltyUpdates("aggPenaltyUpdates", numLocalAggregates);
+    Kokkos::View<int*, memory_space> aggPenalties     ("aggPenalties",      numLocalAggregates);
 
     Kokkos::deep_copy(connectWeight, defaultConnectWeight);
 
@@ -237,61 +238,75 @@ namespace MueLu {
         //the reduce counts how many nodes are aggregated by this phase,
         //which will then be subtracted from numNonAggregatedNodes
         LO numAggregated = 0;
+        Kokkos::parallel_for("Aggregation Phase 2b: updating agg weights",
+          Kokkos::RangePolicy<execution_space>(0, numRows),
+          KOKKOS_LAMBDA (const LO i)
+          {
+            if (aggStat(i) != READY || colors(i) != color)
+              return;
+            auto neighOfINode = graph.getNeighborVertices(i);
+            for (int j = 0; j < neighOfINode.length; j++) {
+              LO neigh = neighOfINode(j);
+              // We don't check (neigh != i), as it is covered by checking
+              // (aggStat[neigh] == AGGREGATED)
+              if (graph.isLocalNeighborVertex(neigh) &&
+                  aggStat(neigh) == AGGREGATED)
+              Kokkos::atomic_add(&aggWeight(vertex2AggId(neigh, 0), 0),
+                  connectWeight(neigh));
+            }
+          });
+        execution_space().fence();
         Kokkos::parallel_reduce("Aggregation Phase 2b: aggregates expansion",
-                                Kokkos::RangePolicy<execution_space>(0, numRows),
-                                KOKKOS_LAMBDA (const LO i, LO& tmpNumAggregated) {
-                                  if (aggStat(i) != READY || colors(i) != color)
-                                    return;
+          Kokkos::RangePolicy<execution_space>(0, numRows),
+          KOKKOS_LAMBDA (const LO i, LO& tmpNumAggregated)
+          {
+            if (aggStat(i) != READY || colors(i) != color)
+              return;
+            int bestScore   = -100000;
+            int bestAggId   = -1;
+            int bestConnect = -1;
 
-                                  auto neighOfINode = graph.getNeighborVertices(i);
-                                  for (int j = 0; j < neighOfINode.length; j++) {
-                                    LO neigh = neighOfINode(j);
+            auto neighOfINode = graph.getNeighborVertices(i);
+            for (int j = 0; j < neighOfINode.length; j++) {
+              LO neigh = neighOfINode(j);
 
-                                    // We don't check (neigh != i), as it is covered by checking
-                                    // (aggStat[neigh] == AGGREGATED)
-                                    if (graph.isLocalNeighborVertex(neigh) &&
-                                        aggStat(neigh) == AGGREGATED)
-                                      Kokkos::atomic_add(&aggWeight(vertex2AggId(neigh, 0), 0),
-                                                         connectWeight(neigh));
-                                  }
+              if (graph.isLocalNeighborVertex(neigh) &&
+                  aggStat(neigh) == AGGREGATED) {
+                auto aggId = vertex2AggId(neigh, 0);
+                int score = aggWeight(aggId) - aggPenalties(aggId);
 
-                                  int bestScore   = -100000;
-                                  int bestAggId   = -1;
-                                  int bestConnect = -1;
+                if (score > bestScore) {
+                  bestAggId   = aggId;
+                  bestScore   = score;
+                  bestConnect = connectWeight(neigh);
 
-                                  for (int j = 0; j < neighOfINode.length; j++) {
-                                    LO neigh = neighOfINode(j);
+                } else if (aggId == bestAggId &&
+                    connectWeight(neigh) > bestConnect) {
+                  bestConnect = connectWeight(neigh);
+                }
+              }
+            }
+            if (bestScore >= 0) {
+              aggStat(i)         = AGGREGATED;
+              vertex2AggId(i, 0) = bestAggId;
+              procWinner(i, 0)   = myRank;
 
-                                    if (graph.isLocalNeighborVertex(neigh) &&
-                                        aggStat(neigh) == AGGREGATED) {
-                                      auto aggId = vertex2AggId(neigh, 0);
-                                      int score = aggWeight(aggId) - aggPenalties(aggId);
-
-                                      if (score > bestScore) {
-                                        bestAggId   = aggId;
-                                        bestScore   = score;
-                                        bestConnect = connectWeight(neigh);
-
-                                      } else if (aggId == bestAggId &&
-                                                 connectWeight(neigh) > bestConnect) {
-                                        bestConnect = connectWeight(neigh);
-                                      }
-                                    }
-                                  }
-                                  if (bestScore >= 0) {
-                                    aggStat(i, 0)      = AGGREGATED;
-                                    vertex2AggId(i, 0) = bestAggId;
-                                    procWinner(i, 0)   = myRank;
-
-                                    Kokkos::atomic_add(&aggPenalties(bestAggId), 1);
-                                    connectWeight(i) = bestConnect - penaltyConnectWeight;
-                                    tmpNumAggregated++;
-                                  }
-                                }, numAggregated); //parallel_for
+              Kokkos::atomic_add(&aggPenaltyUpdates(bestAggId), 1);
+              connectWeight(i) = bestConnect - penaltyConnectWeight;
+              tmpNumAggregated++;
+            }
+          }, numAggregated); //parallel_reduce
+        execution_space().fence();
+        Kokkos::parallel_for("Aggregation Phase 2b: updating agg penalties",
+          Kokkos::RangePolicy<execution_space>(0, numLocalAggregates),
+          KOKKOS_LAMBDA (const LO agg)
+          {
+            aggPenalties(agg) += aggPenaltyUpdates(agg);
+            aggPenaltyUpdates(agg) = 0;
+          });
         numNonAggregatedNodes -= numAggregated;
       }
     } // loop over k
-
   } // BuildAggregatesDeterministic
 } // end namespace
 
