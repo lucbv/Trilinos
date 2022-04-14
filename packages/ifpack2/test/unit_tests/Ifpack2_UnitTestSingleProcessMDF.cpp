@@ -601,13 +601,13 @@ struct MDF_discarded_fill_norm {
 
   values_type  discarded_fill;
   col_ind_type deficiency;
-  int debug;
+  int verbosity;
 
   MDF_discarded_fill_norm(crs_matrix_type A_, crs_matrix_type At_, ordinal_type factorization_step_,
                           col_ind_type permutation_,
-                          values_type  discarded_fill_, col_ind_type deficiency_, int debug_)
+                          values_type  discarded_fill_, col_ind_type deficiency_, int verbosity_)
     : A(A_), At(At_), factorization_step(factorization_step_), permutation(permutation_),
-      discarded_fill(discarded_fill_), deficiency(deficiency_), debug(debug_) {};
+      discarded_fill(discarded_fill_), deficiency(deficiency_), verbosity(verbosity_) {};
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const ordinal_type i) const {
@@ -642,7 +642,7 @@ struct MDF_discarded_fill_norm {
             if(entryIsDiscarded) {
               numFillEntries += 1;
               discard_norm += KAS::abs(At.values(alphaIdx)*A.values(betaIdx))*KAS::abs(At.values(alphaIdx)*A.values(betaIdx));
-              if(debug > 1) {
+              if(verbosity > 1) {
                 printf("Adding value A[%d,%d]=%f to discard norm of row %d\n",
                        int(At.graph.entries(alphaIdx)), int(A.graph.entries(betaIdx)),
                        KAS::abs(At.values(alphaIdx)*A.values(betaIdx))*KAS::abs(At.values(alphaIdx)*A.values(betaIdx)),
@@ -653,7 +653,7 @@ struct MDF_discarded_fill_norm {
         }
       } else if(fillRowIdx == rowIdx) {
         diag_val = At.values(alphaIdx);
-        if(debug > 1) {
+        if(verbosity > 1) {
           printf("Row %d diagonal value dected, values(%d)=%f\n", int(rowIdx), int(alphaIdx),
                  At.values(alphaIdx));
         }
@@ -664,7 +664,7 @@ struct MDF_discarded_fill_norm {
     discard_norm              = discard_norm / (diag_val*diag_val);
     discarded_fill(rowIdx)    = discard_norm;
     deficiency(rowIdx)        = numFillEntries;
-    if(debug > 0) {
+    if(verbosity > 0) {
       const ordinal_type degree = ordinal_type(A.graph.row_map(rowIdx + 1) - A.graph.row_map(rowIdx) - 1);
       printf("Row %d has discarded fill of %f, deficiency of %d and degree %d\n", rowIdx,
              KAS::sqrt(discard_norm), deficiency(rowIdx), degree);
@@ -801,18 +801,18 @@ struct MDF_factorize_row{
   col_ind_type permutation;
   ordinal_type selected_row_idx, factorization_step;
 
-  int debug;
+  int verbosity;
 
   MDF_factorize_row(crs_matrix_type A_, crs_matrix_type At_,
                     row_map_type row_mapL_, col_ind_type entriesL_, values_type valuesL_,
                     row_map_type row_mapU_, col_ind_type entriesU_, values_type valuesU_,
                     col_ind_type permutation_, ordinal_type selected_row_idx_,
-                    ordinal_type factorization_step_, int debug_)
+                    ordinal_type factorization_step_, int verbosity_)
     : A(A_), At(At_),
       row_mapL(row_mapL_), entriesL(entriesL_), valuesL(valuesL_),
       row_mapU(row_mapU_), entriesU(entriesU_), valuesU(valuesU_),
       permutation(permutation_), selected_row_idx(selected_row_idx_),
-    factorization_step(factorization_step_), debug(debug_) {};
+    factorization_step(factorization_step_), verbosity(verbosity_) {};
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const ordinal_type /* idx */) const {
@@ -820,7 +820,7 @@ struct MDF_factorize_row{
     const ordinal_type selected_row = permutation(selected_row_idx);
     permutation(selected_row_idx) = permutation(factorization_step);
     permutation(factorization_step) = selected_row;
-    if(debug > 0) {
+    if(verbosity > 0) {
       printf("Permutation vector: { ");
       for(ordinal_type rowIdx = 0; rowIdx < A.numRows(); ++rowIdx) {
         printf("%d ", permutation(rowIdx));
@@ -852,19 +852,22 @@ struct MDF_factorize_row{
       }
     }
     row_mapU(factorization_step + 1) = U_entryIdx;
-    // printf("U, row_map={ ");
-    // for(ordinal_type rowIdx = 0; rowIdx < factorization_step + 1; ++rowIdx) {
-    //   printf("%d ", int(row_mapU(rowIdx)));
-    // }
-    // printf("}, entries={ ");
-    // for(size_type entryIdx = row_mapU(0); entryIdx < row_mapU(factorization_step + 1); ++entryIdx) {
-    //   printf("%d ", int(entriesU(entryIdx)));
-    // }
-    // printf("}, values={ ");
-    // for(size_type entryIdx = row_mapU(0); entryIdx < row_mapU(factorization_step + 1); ++entryIdx) {
-    //   printf("%f ", valuesU(entryIdx));
-    // }
-    // printf("}\n");
+
+    if(verbosity > 2) {
+      printf("U, row_map={ ");
+      for(ordinal_type rowIdx = 0; rowIdx < factorization_step + 1; ++rowIdx) {
+        printf("%d ", int(row_mapU(rowIdx)));
+      }
+      printf("}, entries={ ");
+      for(size_type entryIdx = row_mapU(0); entryIdx < row_mapU(factorization_step + 1); ++entryIdx) {
+        printf("%d ", int(entriesU(entryIdx)));
+      }
+      printf("}, values={ ");
+      for(size_type entryIdx = row_mapU(0); entryIdx < row_mapU(factorization_step + 1); ++entryIdx) {
+        printf("%f ", valuesU(entryIdx));
+      }
+      printf("}\n");
+    }
 
     // Insert the lower part of the selected column of A
     // divided by its the diagonal value to obtain a unit
@@ -883,17 +886,23 @@ struct MDF_factorize_row{
       }
     }
     row_mapL(factorization_step + 1) = L_entryIdx;
-    // printf("L(%d), [row_map(%d), row_map(%d)[ = [%d, %d[, entries={ ",
-    //        int(factorization_step), int(factorization_step), int(factorization_step+1),
-    //        int(row_mapL(factorization_step)), int(row_mapL(factorization_step+1)));
-    // for(size_type entryIdx = row_mapL(factorization_step); entryIdx < row_mapL(factorization_step + 1); ++entryIdx) {
-    //   printf("%d ", int(entriesL(entryIdx)));
-    // }
-    // printf("}, values={ ");
-    // for(size_type entryIdx = row_mapL(factorization_step); entryIdx < row_mapL(factorization_step + 1); ++entryIdx) {
-    //   printf("%f ", valuesL(entryIdx));
-    // }
-    // printf("}\n");
+
+    if(verbosity > 2) {
+      printf("L(%d), [row_map(%d), row_map(%d)[ = [%d, %d[, entries={ ",
+             int(factorization_step), int(factorization_step), int(factorization_step+1),
+             int(row_mapL(factorization_step)), int(row_mapL(factorization_step+1)));
+      for(size_type entryIdx = row_mapL(factorization_step); entryIdx < row_mapL(factorization_step + 1); ++entryIdx) {
+        printf("%d ", int(entriesL(entryIdx)));
+      }
+      printf("}, values={ ");
+      for(size_type entryIdx = row_mapL(factorization_step); entryIdx < row_mapL(factorization_step + 1); ++entryIdx) {
+        printf("%f ", valuesL(entryIdx));
+      }
+      printf("}\n");
+    }
+
+    // If this was the last row no need to update A and At!
+    if(factorization_step == A.numRows()-1) {return;}
 
     // Finally we want to update A and At with the values
     // that where not discarded during factorization.
@@ -935,6 +944,11 @@ struct MDF_factorize_row{
             for(size_type entryIdx = A.graph.row_map(fillRowIdx); entryIdx < A.graph.row_map(fillRowIdx + 1); ++entryIdx) {
               if(A.graph.entries(entryIdx) == fillColIdx) {
                 A.values(entryIdx) -= At.values(alphaIdx)*A.values(betaIdx) / diag_val;
+
+                if(verbosity > 1) {
+                  printf("A[%d, %d] -= %f\n", int(fillRowIdx), int(fillColIdx),
+                         At.values(alphaIdx)*A.values(betaIdx) / diag_val);
+                }
               }
             }
 
@@ -948,7 +962,7 @@ struct MDF_factorize_row{
       }
     }
 
-    if(debug > 0) {
+    if(verbosity > 0) {
       printf("New values in A: { ");
       for(size_type entryIdx = 0; entryIdx < A.nnz(); ++entryIdx) {
         printf("%f ", A.values(entryIdx));
@@ -958,6 +972,141 @@ struct MDF_factorize_row{
   } // operator()
 
 }; // MDF_factorize_row
+
+template<class crs_matrix_type>
+struct MDF_handle {
+  using row_map_type = typename crs_matrix_type::StaticCrsGraphType::row_map_type::non_const_type;
+  using col_ind_type = typename crs_matrix_type::StaticCrsGraphType::entries_type::non_const_type;
+  using values_type  = typename crs_matrix_type::values_type::non_const_type;
+  using size_type    = typename crs_matrix_type::size_type;
+  using ordinal_type = typename crs_matrix_type::ordinal_type;
+
+  ordinal_type numRows;
+
+  // Views needed to construct L and U
+  // at the end of the numerical phase.
+  row_map_type row_mapL, row_mapU;
+  col_ind_type entriesL, entriesU;
+  values_type  valuesL, valuesU;
+
+  // Row permutation that defines
+  // the MDF ordering or order of
+  // elimination during the factorization.
+  col_ind_type permutation;
+
+  int verbosity;
+
+
+  MDF_handle(const crs_matrix_type A) : numRows(A.numRows()),
+                                        permutation(col_ind_type("row permutation", A.numRows())),
+                                        verbosity(0) {};
+
+  void set_verbosity(const int verbosity_level) {verbosity = verbosity_level;}
+
+  void allocate_data(const size_type nnzL,
+                     const size_type nnzU) {
+
+    // Allocate L
+    row_mapL = row_map_type("row map L", numRows + 1);
+    entriesL = col_ind_type("entries L", nnzL);
+    valuesL  = values_type("values L",   nnzL);
+
+    // Allocate U
+    row_mapU = row_map_type("row map U", numRows + 1);
+    entriesU = col_ind_type("entries U", nnzU);
+    valuesU  = values_type("values U",   nnzU);
+  }
+
+  col_ind_type get_permutation() {return permutation;}
+
+};
+
+template<class crs_matrix_type, class MDF_handle>
+void mdf_symbolic_phase(crs_matrix_type& A, MDF_handle& handle) {
+  using row_map_type = typename crs_matrix_type::StaticCrsGraphType::row_map_type::non_const_type;
+  using col_ind_type = typename crs_matrix_type::StaticCrsGraphType::entries_type::non_const_type;
+  using values_type  = typename crs_matrix_type::values_type::non_const_type;
+  using size_type    = typename crs_matrix_type::size_type;
+  using ordinal_type = typename crs_matrix_type::ordinal_type;
+
+  using execution_space = typename crs_matrix_type::execution_space;
+  using range_policy_type = Kokkos::RangePolicy<ordinal_type, execution_space>;
+
+  // Symbolic phase:
+  // compute transpose of A for easy access to columns of A
+  // allocate temporaries
+  // allocate L and U
+  size_type nnzL = 0, nnzU = 0;
+  range_policy_type setupPolicy(0, A.numRows());
+  MDF_count_lower<crs_matrix_type> compute_nnzL(A, handle.permutation);
+  Kokkos::parallel_reduce(range_policy_type(0, A.numRows()), compute_nnzL, nnzL);
+  nnzU = A.nnz() - nnzL + A.numRows();
+  handle.allocate_data(nnzL, nnzU);
+
+  if(handle.verbosity > 0) {
+    printf("MDF symbolic:  nnzL = %d, nnzU = %d\n",
+           static_cast<int>(nnzL),
+           static_cast<int>(nnzU));
+  }
+
+  return;
+} // mdf_symbolic_phase
+
+template<class crs_matrix_type, class MDF_handle>
+void mdf_numeric_phase(crs_matrix_type& A, MDF_handle& handle) {
+  using col_ind_type = typename crs_matrix_type::StaticCrsGraphType::entries_type::non_const_type;
+  using values_type  = typename crs_matrix_type::values_type::non_const_type;
+  using ordinal_type = typename crs_matrix_type::ordinal_type;
+  using value_type   = typename crs_matrix_type::value_type;
+
+  using execution_space = typename crs_matrix_type::execution_space;
+  using range_policy_type = Kokkos::RangePolicy<ordinal_type, execution_space>;
+
+  // Numerical phase:
+  // loop over rows
+  //   compute discarded fill of each row
+  //   selected pivot based on MDF
+  //   factorize pivot row of A
+  crs_matrix_type Atmp = crs_matrix_type("A fill", A);
+  crs_matrix_type At = KokkosKernels::Impl::transpose_matrix<crs_matrix_type>(A);
+  values_type  discarded_fill("discarded fill", A.numRows());
+  col_ind_type deficiency("deficiency", A.numRows());
+
+  const int verbosity_level = handle.verbosity;
+  for(ordinal_type factorization_step = 0; factorization_step < A.numRows(); ++factorization_step) {
+    if(verbosity_level > 0) {
+      printf("\n\nFactorization step %d\n\n", static_cast<int>(factorization_step));
+    }
+
+    range_policy_type stepPolicy(factorization_step, Atmp.numRows());
+    Kokkos::deep_copy(discarded_fill, Kokkos::ArithTraits<value_type>::max());
+    Kokkos::deep_copy(deficiency, Kokkos::ArithTraits<ordinal_type>::max());
+    MDF_discarded_fill_norm<crs_matrix_type> MDF_df_norm(Atmp, At, factorization_step,
+                                                         handle.permutation,
+                                                         discarded_fill, deficiency,
+                                                         verbosity_level);
+    Kokkos::parallel_for(stepPolicy, MDF_df_norm);
+
+    ordinal_type selected_row_idx = 0;
+    MDF_select_row<crs_matrix_type> MDF_row_selector(factorization_step, discarded_fill,
+                                                     deficiency, Atmp.graph.row_map,
+                                                     handle.permutation);
+    Kokkos::parallel_reduce(stepPolicy, MDF_row_selector, selected_row_idx);
+
+    MDF_factorize_row<crs_matrix_type> factorize_row(Atmp, At,
+                                                     handle.row_mapL, handle.entriesL, handle.valuesL,
+                                                     handle.row_mapU, handle.entriesU, handle.valuesU,
+                                                     handle.permutation, selected_row_idx,
+                                                     factorization_step, verbosity_level);
+    Kokkos::parallel_for(range_policy_type(0, 1), factorize_row);
+
+    if(verbosity_level > 0) {
+      printf("\n");
+    }
+  }
+
+  return;
+} // mdf_numeric_phase
 
 template<typename Scalar, typename LO, typename GO>
 void Ifpack2SingleProcessMDF_analytical (bool& success, Teuchos::FancyOStream& out,
@@ -973,7 +1122,6 @@ void Ifpack2SingleProcessMDF_analytical (bool& success, Teuchos::FancyOStream& o
   using ordinal_type      = typename local_matrix_type::ordinal_type;
   using value_type        = typename local_matrix_type::value_type;
   using execution_space   = typename local_matrix_type::execution_space;
-  using range_policy_type = Kokkos::RangePolicy<ordinal_type, execution_space>;
 
   Kokkos::initialize();
   {
@@ -986,130 +1134,67 @@ void Ifpack2SingleProcessMDF_analytical (bool& success, Teuchos::FancyOStream& o
     col_ind_type col_ind("column indices", numNonZeros);
     values_type  values("values", numNonZeros);
 
-    const size_type row_mapRaw[]    = {0, 3, 7, 11, 14, 18, 23, 28, 32, 36, 41, 46, 50, 53, 57, 61, 64};
-    const ordinal_type col_indRaw[] = {0, 1, 4,
-                                       0, 1, 2, 5,
-                                       1, 2, 3, 6,
-                                       2, 3, 7,
-                                       0, 4, 5, 8,
-                                       1, 4, 5, 6, 9,
-                                       2, 5, 6, 7, 10,
-                                       3, 6, 7, 11,
-                                       4, 8, 9, 12,
-                                       5, 8, 9, 10, 13,
-                                       6, 9, 10, 11, 14,
-                                       7, 10, 11, 15,
-                                       8, 12, 13,
-                                       9, 12, 13, 14,
-                                       10, 13, 14, 15,
-                                       11, 14, 15};
-    const value_type values_Raw[]   = {4, -1, -1,
-                                       -1, 4, -1, -1,
-                                       -1, 4, -1, -1,
-                                       -1, 4, -1,
-                                       -1, 4, -1, -1,
-                                       -1, -1, 4, -1, -1,
-                                       -1, -1, 4, -1, -1,
-                                       -1, -1, 4, -1,
-                                       -1, 4, -1, -1,
-                                       -1, -1, 4, -1, -1,
-                                       -1, -1, 4, -1, -1,
-                                       -1, -1, 4, -1,
-                                       -1, 4, -1,
-                                       -1, -1, 4, -1,
-                                       -1, -1, 4, -1,
-                                       -1, -1, 4};
+    { // create matrix
+      const size_type row_mapRaw[]    = {0, 3, 7, 11, 14, 18, 23, 28, 32, 36, 41, 46, 50, 53, 57, 61, 64};
+      const ordinal_type col_indRaw[] = {0, 1, 4,
+                                         0, 1, 2, 5,
+                                         1, 2, 3, 6,
+                                         2, 3, 7,
+                                         0, 4, 5, 8,
+                                         1, 4, 5, 6, 9,
+                                         2, 5, 6, 7, 10,
+                                         3, 6, 7, 11,
+                                         4, 8, 9, 12,
+                                         5, 8, 9, 10, 13,
+                                         6, 9, 10, 11, 14,
+                                         7, 10, 11, 15,
+                                         8, 12, 13,
+                                         9, 12, 13, 14,
+                                         10, 13, 14, 15,
+                                         11, 14, 15};
+      const value_type values_Raw[]   = {4, -1, -1,
+                                         -1, 4, -1, -1,
+                                         -1, 4, -1, -1,
+                                         -1, 4, -1,
+                                         -1, 4, -1, -1,
+                                         -1, -1, 4, -1, -1,
+                                         -1, -1, 4, -1, -1,
+                                         -1, -1, 4, -1,
+                                         -1, 4, -1, -1,
+                                         -1, -1, 4, -1, -1,
+                                         -1, -1, 4, -1, -1,
+                                         -1, -1, 4, -1,
+                                         -1, 4, -1,
+                                         -1, -1, 4, -1,
+                                         -1, -1, 4, -1,
+                                         -1, -1, 4};
 
-    typename row_map_type::HostMirror::const_type row_map_host(row_mapRaw, numRows + 1);
-    typename col_ind_type::HostMirror::const_type col_ind_host(col_indRaw, numNonZeros);
-    typename values_type::HostMirror::const_type  values_host(values_Raw, numNonZeros);
+      typename row_map_type::HostMirror::const_type row_map_host(row_mapRaw, numRows + 1);
+      typename col_ind_type::HostMirror::const_type col_ind_host(col_indRaw, numNonZeros);
+      typename values_type::HostMirror::const_type  values_host(values_Raw, numNonZeros);
 
-    Kokkos::deep_copy(row_map, row_map_host);
-    Kokkos::deep_copy(col_ind, col_ind_host);
-    Kokkos::deep_copy(values, values_host);
-
-    local_matrix_type A  = local_matrix_type("A", numRows, numCols, numNonZeros, values, row_map, col_ind);
-
-    // Symbolic phase:
-    // make a copy of A to update values as factorization proceeds
-    // compute transpose of A for easy access to columns of A
-    // allocate temporaties
-    // allocate L and U
-    local_matrix_type Atmp = local_matrix_type("A fill", A);
-    local_matrix_type At = KokkosKernels::Impl::transpose_matrix<local_matrix_type>(A);
-    values_type  fill_values("fill values", numNonZeros);
-    values_type  discarded_fill("discarded fill", numRows);
-    col_ind_type deficiency("deficiency", numRows);
-    col_ind_type permutation("row permutation", numRows);
-    typename col_ind_type::HostMirror permutation_h = Kokkos::create_mirror(permutation);
-
-    local_matrix_type L, U;
-    size_type nnzL = 0, nnzU = 0;
-    range_policy_type setupPolicy(0, A.numRows());
-    MDF_count_lower<local_matrix_type> compute_nnzL(Atmp, permutation);
-    Kokkos::parallel_reduce(setupPolicy, compute_nnzL, nnzL);
-    nnzU = A.nnz() - nnzL + A.numRows();
-    printf("nnzL = %d, nnzU = %d\n", static_cast<int>(nnzL), static_cast<int>(nnzU));
-    row_map_type row_mapL("row map L", numRows), row_mapU("row map U", numRows);
-    col_ind_type entriesL("entries L", nnzL), entriesU("entries U", nnzU);
-    values_type  valuesL("values L", nnzL), valuesU("values U", nnzU);
-
-    // Numerical phase:
-    // loop over rows
-    //   compute discarded fill of each row
-    //   selected pivot based on MDF
-    //   factorize pivot row of A
-    int debug = 1;
-    const ordinal_type max_step = 15; // this should be replaced with A.numRows() but it's useful for debugging
-    for(ordinal_type factorization_step = 0; factorization_step < max_step; ++factorization_step) {
-      printf("\n\nFactorization step %d\n\n", int(factorization_step));
-      range_policy_type stepPolicy(factorization_step, Atmp.numRows());
-      Kokkos::deep_copy(discarded_fill, Kokkos::ArithTraits<value_type>::max());
-      Kokkos::deep_copy(deficiency, Kokkos::ArithTraits<ordinal_type>::max());
-      MDF_discarded_fill_norm<local_matrix_type> MDF_df_norm(Atmp, At, factorization_step, permutation,
-                                                             discarded_fill, deficiency, debug);
-      Kokkos::parallel_for(stepPolicy, MDF_df_norm);
-
-      ordinal_type selected_row_idx = 0;
-      MDF_select_row<local_matrix_type> MDF_row_selector(factorization_step, discarded_fill,
-                                                         deficiency, Atmp.graph.row_map, permutation);
-      Kokkos::parallel_reduce(stepPolicy, MDF_row_selector, selected_row_idx);
-      Kokkos::deep_copy(permutation_h, permutation);
-      printf("Selected row is %d with index %d\n",
-             int(permutation_h(selected_row_idx)), int(selected_row_idx));
-
-      MDF_factorize_row<local_matrix_type> factorize_row(Atmp, At, row_mapL, entriesL, valuesL,
-                                                         row_mapU, entriesU, valuesU,
-                                                         permutation, selected_row_idx, factorization_step, 1);
-      Kokkos::parallel_for(range_policy_type(0, 1), factorize_row);
-      printf("\n");
+      Kokkos::deep_copy(row_map, row_map_host);
+      Kokkos::deep_copy(col_ind, col_ind_host);
+      Kokkos::deep_copy(values, values_host);
     }
 
-    debug = 1;
-    ordinal_type factorization_step = max_step;
-    printf("factorization step %d\n", factorization_step);
-    range_policy_type stepPolicy(factorization_step, Atmp.numRows());
-    Kokkos::deep_copy(discarded_fill, Kokkos::ArithTraits<value_type>::max());
-    Kokkos::deep_copy(deficiency, Kokkos::ArithTraits<ordinal_type>::max());
-    MDF_discarded_fill_norm<local_matrix_type> MDF_df_norm(Atmp, At, factorization_step, permutation,
-                                                           discarded_fill, deficiency, debug);
-    Kokkos::parallel_for(stepPolicy, MDF_df_norm);
+    local_matrix_type A = local_matrix_type("A", numRows, numCols, numNonZeros, values, row_map, col_ind);
 
-    ordinal_type selected_row_idx = 0;
-    MDF_select_row<local_matrix_type> MDF_row_selector(factorization_step, discarded_fill,
-                                                       deficiency, Atmp.graph.row_map, permutation);
-    Kokkos::parallel_reduce(stepPolicy, MDF_row_selector, selected_row_idx);
+    MDF_handle<local_matrix_type> handle(A);
+    handle.set_verbosity(0);
+    mdf_symbolic_phase(A, handle);
+    mdf_numeric_phase(A, handle);
+
+    col_ind_type permutation = handle.get_permutation();
+    typename col_ind_type::HostMirror permutation_h = Kokkos::create_mirror(permutation);
     Kokkos::deep_copy(permutation_h, permutation);
-    printf("Selected row is %d with index %d\n",
-           int(permutation_h(selected_row_idx)), int(selected_row_idx));
+    const ordinal_type permutation_ref[] = {0, 3, 12, 15, 1, 2, 4, 8, 7, 11, 13, 14, 5, 6, 9, 10};
+    for(ordinal_type idx = 0; idx < A.numRows(); ++idx) {;
+      if(permutation_h(idx) != permutation_ref[idx]) {
+        success = false;
+      }
+    }
 
-    MDF_factorize_row<local_matrix_type> factorize_row(Atmp, At, row_mapL, entriesL, valuesL,
-                                                       row_mapU, entriesU, valuesU,
-                                                       permutation, selected_row_idx, factorization_step, debug);
-    Kokkos::parallel_for(range_policy_type(0, 1), factorize_row);
-
-
-    printf("\n\n");
   } // Scope for Kokkos::initialize/finalize
   Kokkos::finalize();
 } // unit test analytical
