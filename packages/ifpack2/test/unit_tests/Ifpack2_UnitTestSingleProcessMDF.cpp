@@ -57,6 +57,8 @@
 // #include "MatrixMarket_Tpetra.hpp"
 // #include "TpetraExt_MatrixMatrix.hpp"
 
+#include "KokkosKernels_Sorting.hpp"
+
 #include "Ifpack2_UnitTestHelpers.hpp"
 #include "Ifpack2_MDF.hpp"
 
@@ -566,13 +568,15 @@ struct MDF_count_lower {
 
   crs_matrix_type A;
   col_ind_type permutation;
+  col_ind_type permutation_inv;
 
-  MDF_count_lower(crs_matrix_type A_, col_ind_type permutation_) :
-    A(A_), permutation(permutation_) {};
+  MDF_count_lower(crs_matrix_type A_, col_ind_type permutation_, col_ind_type permutation_inv_) :
+    A(A_), permutation(permutation_), permutation_inv(permutation_inv_) {};
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const size_type rowIdx, value_type& update) const {
     permutation(rowIdx) = rowIdx;
+    permutation_inv(rowIdx) = rowIdx;
     for(value_type entryIdx = A.graph.row_map(rowIdx); entryIdx < A.graph.row_map(rowIdx + 1); ++entryIdx) {
       if(A.graph.entries(entryIdx) <= rowIdx) {
         update += 1;
@@ -798,7 +802,7 @@ struct MDF_factorize_row{
   col_ind_type entriesU;
   values_type  valuesU;
 
-  col_ind_type permutation;
+  col_ind_type permutation, permutation_inv;
   ordinal_type selected_row_idx, factorization_step;
 
   int verbosity;
@@ -806,33 +810,32 @@ struct MDF_factorize_row{
   MDF_factorize_row(crs_matrix_type A_, crs_matrix_type At_,
                     row_map_type row_mapL_, col_ind_type entriesL_, values_type valuesL_,
                     row_map_type row_mapU_, col_ind_type entriesU_, values_type valuesU_,
-                    col_ind_type permutation_, ordinal_type selected_row_idx_,
-                    ordinal_type factorization_step_, int verbosity_)
+                    col_ind_type permutation_, col_ind_type permutation_inv_,
+                    ordinal_type selected_row_idx_, ordinal_type factorization_step_,
+                    int verbosity_)
     : A(A_), At(At_),
       row_mapL(row_mapL_), entriesL(entriesL_), valuesL(valuesL_),
-      row_mapU(row_mapU_), entriesU(entriesU_), valuesU(valuesU_),
-      permutation(permutation_), selected_row_idx(selected_row_idx_),
-    factorization_step(factorization_step_), verbosity(verbosity_) {};
+    row_mapU(row_mapU_), entriesU(entriesU_), valuesU(valuesU_),
+    permutation(permutation_), permutation_inv(permutation_inv_),
+    selected_row_idx(selected_row_idx_), factorization_step(factorization_step_),
+    verbosity(verbosity_) {};
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const ordinal_type /* idx */) const {
-    // Swap entries in permutation vectors
     const ordinal_type selected_row = permutation(selected_row_idx);
+
+    // Swap entries in permutation vectors
     permutation(selected_row_idx) = permutation(factorization_step);
     permutation(factorization_step) = selected_row;
+    permutation_inv(permutation(factorization_step)) = factorization_step;
+    permutation_inv(permutation(selected_row_idx)) = selected_row_idx;
+
     if(verbosity > 0) {
       printf("Permutation vector: { ");
       for(ordinal_type rowIdx = 0; rowIdx < A.numRows(); ++rowIdx) {
         printf("%d ", permutation(rowIdx));
       }
       printf("}\n");
-    }
-
-    // printf("Factorization step %d\n", int(factorization_step));
-    // Permute columns of U to reflect that factorization_step
-    // and selected_row are swapped.
-    for(size_type entryIdx = 0; entryIdx < row_mapU(factorization_step); ++entryIdx) {
-      if(entriesU(entryIdx) == factorization_step) {entriesU(entryIdx) = selected_row;}
     }
 
     // Insert the upper part of the selected row in U
@@ -842,16 +845,20 @@ struct MDF_factorize_row{
     for(size_type entryIdx = A.graph.row_map(selected_row);
         entryIdx < A.graph.row_map(selected_row + 1);
         ++entryIdx) {
-      if(permutation(A.graph.entries(entryIdx)) >= factorization_step) {
-        entriesU(U_entryIdx) = permutation(A.graph.entries(entryIdx));
+      if(permutation_inv(A.graph.entries(entryIdx)) >= factorization_step) {
+        entriesU(U_entryIdx) = A.graph.entries(entryIdx);
         valuesU(U_entryIdx) = A.values(entryIdx);
         ++U_entryIdx;
-        if(permutation(A.graph.entries(entryIdx)) == factorization_step) {
+        if(A.graph.entries(entryIdx) == selected_row) {
           diag = A.values(entryIdx);
         }
       }
     }
     row_mapU(factorization_step + 1) = U_entryIdx;
+
+    if(verbosity > 0) {
+      printf("Diagonal values of row %d is %f\n", selected_row, diag);
+    }
 
     if(verbosity > 2) {
       printf("U, row_map={ ");
@@ -873,14 +880,14 @@ struct MDF_factorize_row{
     // divided by its the diagonal value to obtain a unit
     // diagonal value in L.
     size_type L_entryIdx = row_mapL(factorization_step);
-    entriesL(L_entryIdx) = factorization_step;
+    entriesL(L_entryIdx) = selected_row;
     valuesL(L_entryIdx)  = Kokkos::ArithTraits<value_type>::one();
     ++L_entryIdx;
     for(size_type entryIdx = At.graph.row_map(selected_row);
         entryIdx < At.graph.row_map(selected_row + 1);
         ++entryIdx) {
-      if(permutation(At.graph.entries(entryIdx)) > factorization_step) {
-        entriesL(L_entryIdx) = permutation(At.graph.entries(entryIdx));
+      if(permutation_inv(At.graph.entries(entryIdx)) > factorization_step) {
+        entriesL(L_entryIdx) = At.graph.entries(entryIdx);
         valuesL(L_entryIdx) = At.values(entryIdx) / diag;
         ++L_entryIdx;
       }
@@ -968,18 +975,40 @@ struct MDF_factorize_row{
         printf("%f ", A.values(entryIdx));
       }
       printf("}\n");
+      printf("New values in At: { ");
+      for(size_type entryIdx = 0; entryIdx < At.nnz(); ++entryIdx) {
+        printf("%f ", At.values(entryIdx));
+      }
+      printf("}\n");
     }
   } // operator()
 
 }; // MDF_factorize_row
 
-template<class crs_matrix_type>
+template<class col_ind_type>
+struct MDF_reindex_matrix {
+
+  col_ind_type permutation_inv;
+  col_ind_type entries;
+
+  MDF_reindex_matrix(col_ind_type permutation_inv_, col_ind_type entries_)
+    : permutation_inv(permutation_inv_), entries(entries_) {}
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const int entryIdx) const {
+    entries(entryIdx) = permutation_inv(entries(entryIdx));
+  }
+};
+
+template<class matrix_type>
 struct MDF_handle {
-  using row_map_type = typename crs_matrix_type::StaticCrsGraphType::row_map_type::non_const_type;
-  using col_ind_type = typename crs_matrix_type::StaticCrsGraphType::entries_type::non_const_type;
-  using values_type  = typename crs_matrix_type::values_type::non_const_type;
-  using size_type    = typename crs_matrix_type::size_type;
-  using ordinal_type = typename crs_matrix_type::ordinal_type;
+  using crs_matrix_type = matrix_type;
+  using execution_space = typename matrix_type::execution_space;
+  using row_map_type    = typename crs_matrix_type::StaticCrsGraphType::row_map_type::non_const_type;
+  using col_ind_type    = typename crs_matrix_type::StaticCrsGraphType::entries_type::non_const_type;
+  using values_type     = typename crs_matrix_type::values_type::non_const_type;
+  using size_type       = typename crs_matrix_type::size_type;
+  using ordinal_type    = typename crs_matrix_type::ordinal_type;
 
   ordinal_type numRows;
 
@@ -992,13 +1021,14 @@ struct MDF_handle {
   // Row permutation that defines
   // the MDF ordering or order of
   // elimination during the factorization.
-  col_ind_type permutation;
+  col_ind_type permutation, permutation_inv;
 
   int verbosity;
 
 
   MDF_handle(const crs_matrix_type A) : numRows(A.numRows()),
                                         permutation(col_ind_type("row permutation", A.numRows())),
+                                        permutation_inv(col_ind_type("inverse row permutation", A.numRows())),
                                         verbosity(0) {};
 
   void set_verbosity(const int verbosity_level) {verbosity = verbosity_level;}
@@ -1019,6 +1049,19 @@ struct MDF_handle {
 
   col_ind_type get_permutation() {return permutation;}
 
+  void sort_factors() {
+    KokkosKernels::sort_crs_matrix<execution_space, row_map_type, col_ind_type, values_type>
+      (row_mapL, entriesL, valuesL);
+    KokkosKernels::sort_crs_matrix<execution_space, row_map_type, col_ind_type, values_type>
+      (row_mapU, entriesU, valuesU);
+  }
+
+  crs_matrix_type getL() {return crs_matrix_type("L", numRows, numRows, entriesL.extent(0),
+                                                 valuesL, row_mapL, entriesL);}
+
+  crs_matrix_type getU() {return crs_matrix_type("U", numRows, numRows, entriesU.extent(0),
+                                                 valuesU, row_mapU, entriesU);}
+
 };
 
 template<class crs_matrix_type, class MDF_handle>
@@ -1038,7 +1081,7 @@ void mdf_symbolic_phase(crs_matrix_type& A, MDF_handle& handle) {
   // allocate L and U
   size_type nnzL = 0, nnzU = 0;
   range_policy_type setupPolicy(0, A.numRows());
-  MDF_count_lower<crs_matrix_type> compute_nnzL(A, handle.permutation);
+  MDF_count_lower<crs_matrix_type> compute_nnzL(A, handle.permutation, handle.permutation_inv);
   Kokkos::parallel_reduce(range_policy_type(0, A.numRows()), compute_nnzL, nnzL);
   nnzU = A.nnz() - nnzL + A.numRows();
   handle.allocate_data(nnzL, nnzU);
@@ -1069,6 +1112,7 @@ void mdf_numeric_phase(crs_matrix_type& A, MDF_handle& handle) {
   //   factorize pivot row of A
   crs_matrix_type Atmp = crs_matrix_type("A fill", A);
   crs_matrix_type At = KokkosKernels::Impl::transpose_matrix<crs_matrix_type>(A);
+  KokkosKernels::sort_crs_matrix<crs_matrix_type>(At);
   values_type  discarded_fill("discarded fill", A.numRows());
   col_ind_type deficiency("deficiency", A.numRows());
 
@@ -1096,14 +1140,24 @@ void mdf_numeric_phase(crs_matrix_type& A, MDF_handle& handle) {
     MDF_factorize_row<crs_matrix_type> factorize_row(Atmp, At,
                                                      handle.row_mapL, handle.entriesL, handle.valuesL,
                                                      handle.row_mapU, handle.entriesU, handle.valuesU,
-                                                     handle.permutation, selected_row_idx,
-                                                     factorization_step, verbosity_level);
+                                                     handle.permutation, handle.permutation_inv,
+                                                     selected_row_idx, factorization_step,
+                                                     verbosity_level);
     Kokkos::parallel_for(range_policy_type(0, 1), factorize_row);
 
     if(verbosity_level > 0) {
       printf("\n");
     }
   }
+
+  MDF_reindex_matrix<col_ind_type> reindex_U(handle.permutation_inv, handle.entriesU);
+  Kokkos::parallel_for(range_policy_type(0, handle.entriesU.extent(0)),
+                       reindex_U);
+
+  printf("Reindexing L\n");
+  MDF_reindex_matrix<col_ind_type> reindex_L(handle.permutation_inv, handle.entriesL);
+  Kokkos::parallel_for(range_policy_type(0, handle.entriesL.extent(0)),
+                       reindex_L);
 
   return;
 } // mdf_numeric_phase
@@ -1194,6 +1248,55 @@ void Ifpack2SingleProcessMDF_analytical (bool& success, Teuchos::FancyOStream& o
         success = false;
       }
     }
+
+    handle.sort_factors();
+    local_matrix_type U = handle.getU();
+
+    if(0 < handle.verbosity) {
+      typename row_map_type::HostMirror row_mapU_h = Kokkos::create_mirror_view(U.graph.row_map);
+      Kokkos::deep_copy(row_mapU_h, U.graph.row_map);
+      typename col_ind_type::HostMirror entriesU_h = Kokkos::create_mirror_view(U.graph.entries);
+      Kokkos::deep_copy(entriesU_h, U.graph.entries);
+      typename values_type::HostMirror valuesU_h = Kokkos::create_mirror_view(U.values);
+      Kokkos::deep_copy(valuesU_h, U.values);
+
+      printf("U\n");
+      printf("  numRows:     %d\n", int(U.numRows()));
+      printf("  numCols:     %d\n", int(U.numCols()));
+      printf("  numNonZeros: %d\n", int(U.nnz()));
+      for(ordinal_type rowIdx = 0; rowIdx < U.numRows(); ++rowIdx) {
+        printf("  row %d: (%d, %d) {", int(rowIdx), int(row_mapU_h(rowIdx)), int(row_mapU_h(rowIdx + 1)));
+        for(size_type entryIdx = row_mapU_h(rowIdx); entryIdx < row_mapU_h(rowIdx + 1); ++entryIdx) {
+          printf(" (%d, %f)", entriesU_h(entryIdx), valuesU_h(entryIdx));
+        }
+        printf(" }\n");
+      }
+    }
+
+    local_matrix_type L = KokkosKernels::Impl::transpose_matrix<local_matrix_type>(handle.getL());
+
+    if(0 < handle.verbosity) {
+      typename row_map_type::HostMirror row_mapL_h = Kokkos::create_mirror_view(L.graph.row_map);
+      Kokkos::deep_copy(row_mapL_h, L.graph.row_map);
+      typename col_ind_type::HostMirror entriesL_h = Kokkos::create_mirror_view(L.graph.entries);
+      Kokkos::deep_copy(entriesL_h, L.graph.entries);
+      typename values_type::HostMirror valuesL_h = Kokkos::create_mirror_view(L.values);
+      Kokkos::deep_copy(valuesL_h, L.values);
+      printf("\n");
+      printf("L\n");
+      printf("  numRows:     %d\n", int(L.numRows()));
+      printf("  numCols:     %d\n", int(L.numCols()));
+      printf("  numNonZeros: %d\n", int(L.nnz()));
+      for(ordinal_type rowIdx = 0; rowIdx < L.numRows(); ++rowIdx) {
+        printf("  row %d: (%d, %d) {", int(rowIdx), int(row_mapL_h(rowIdx)), int(row_mapL_h(rowIdx + 1)));
+        for(size_type entryIdx = row_mapL_h(rowIdx); entryIdx < row_mapL_h(rowIdx + 1); ++entryIdx) {
+          printf(" (%d, %f)", entriesL_h(entryIdx), valuesL_h(entryIdx));
+        }
+        printf(" }\n");
+      }
+    }
+
+
 
   } // Scope for Kokkos::initialize/finalize
   Kokkos::finalize();
